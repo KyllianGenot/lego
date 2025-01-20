@@ -29,7 +29,7 @@ let currentPagination = {};
 const selectShow = document.querySelector('#show-select');
 const selectPage = document.querySelector('#page-select');
 const selectLegoSetIds = document.querySelector('#lego-set-id-select');
-const sectionDeals= document.querySelector('#deals');
+const sectionDeals = document.querySelector('#deals');
 const spanNbDeals = document.querySelector('#nbDeals');
 
 /**
@@ -37,7 +37,7 @@ const spanNbDeals = document.querySelector('#nbDeals');
  * @param {Array} result - deals to display
  * @param {Object} meta - pagination meta info
  */
-const setCurrentDeals = ({result, meta}) => {
+const setCurrentDeals = ({ result, meta }) => {
   currentDeals = result;
   currentPagination = meta;
 };
@@ -57,13 +57,13 @@ const fetchDeals = async (page = 1, size = 6) => {
 
     if (body.success !== true) {
       console.error(body);
-      return {currentDeals, currentPagination};
+      return { currentDeals, currentPagination };
     }
 
     return body.data;
   } catch (error) {
     console.error(error);
-    return {currentDeals, currentPagination};
+    return { currentDeals, currentPagination };
   }
 };
 
@@ -97,9 +97,9 @@ const renderDeals = deals => {
  * @param  {Object} pagination
  */
 const renderPagination = pagination => {
-  const {currentPage, pageCount} = pagination;
+  const { currentPage, pageCount } = pagination;
   const options = Array.from(
-    {'length': pageCount},
+    { length: pageCount },
     (value, index) => `<option value="${index + 1}">${index + 1}</option>`
   ).join('');
 
@@ -113,7 +113,7 @@ const renderPagination = pagination => {
  */
 const renderLegoSetIds = deals => {
   const ids = getIdsFromDeals(deals);
-  const options = ids.map(id => 
+  const options = ids.map(id =>
     `<option value="${id}">${id}</option>`
   ).join('');
 
@@ -121,20 +121,25 @@ const renderLegoSetIds = deals => {
 };
 
 /**
- * Render page selector
+ * Render indicators
  * @param  {Object} pagination
  */
 const renderIndicators = pagination => {
-  const {count} = pagination;
+  const { count } = pagination;
 
   spanNbDeals.innerHTML = count;
 };
 
+/**
+ * Render all components
+ * @param  {Array} deals
+ * @param  {Object} pagination
+ */
 const render = (deals, pagination) => {
   renderDeals(deals);
   renderPagination(pagination);
   renderIndicators(pagination);
-  renderLegoSetIds(deals)
+  renderLegoSetIds(deals);
 };
 
 /**
@@ -151,9 +156,23 @@ selectShow.addEventListener('change', async (event) => {
   render(currentDeals, currentPagination);
 });
 
+/**
+ * Select the page to display
+ */
+selectPage.addEventListener('change', async (event) => {
+  const page = parseInt(event.target.value);
+  const size = parseInt(selectShow.value);
+
+  const deals = await fetchDeals(page, size);
+  setCurrentDeals(deals);
+  render(currentDeals, currentPagination);
+});
+
+/**
+ * Initialize the page
+ */
 document.addEventListener('DOMContentLoaded', async () => {
   const deals = await fetchDeals();
-
   setCurrentDeals(deals);
   render(currentDeals, currentPagination);
 });
