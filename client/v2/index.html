@@ -1,94 +1,146 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>🧱 Lego | Predictability of a lego set deal</title>
-    <style>
-      /* Ajout de styles pour les boutons favoris */
-      .favorite-btn {
-        background-color: #ffcc00;
-        border: none;
-        padding: 5px 10px;
-        cursor: pointer;
-        margin-left: 10px;
-      }
-      .favorite-btn.favorited {
-        background-color: #ff6666;
-      }
-    </style>
+    <meta charset="utf-8">
+    <title>🧱 Lego Deal Analytics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <h1>Lego</h1>
-    <section id="options">
-      <div id="show">
-        <label for="show-select">Show:</label>
-        <select name="show" id="show-select">
-          <option value="6">6</option>
-          <option value="12">12</option>
-          <option value="24">24</option>
-        </select>
-      </div>
-      <div id="page">
-        <label for="page-select">Go to page:</label>
-        <select name="page" id="page-select"> </select>
-      </div>
-      <div id="filters">
-        <div>
-          <label for="discount-filter">Filter by discount (%):</label>
-          <input type="number" id="discount-filter" min="0" max="100" placeholder="Enter discount %">
-          <button id="apply-discount-filter">Apply</button>
+    <div class="app-container">
+      <!-- Header Section -->
+      <header class="app-header">
+        <h1 class="app-title">
+          <i class="fas fa-cube"></i>
+          Lego Analytics
+        </h1>
+        
+        <div class="global-controls">
+          <div class="control-item">
+            <label>Show</label>
+            <select id="show-select" class="compact-select">
+              <option value="6">6</option>
+              <option value="12">12</option>
+              <option value="24">24</option>
+            </select>
+          </div>
+          
+          <div class="control-item">
+            <label>Page</label>
+            <select id="page-select" class="compact-select" aria-label="Select page"></select>
+          </div>
         </div>
-        <button id="filter-most-commented">By most commented (>15 comments)</button>
-        <button id="filter-hot-deals">By hot deals (>100°)</button>
-        <button id="filter-favorites">By favorites</button>
-        <button id="clear-filters">Clear filters</button>
-      </div>
-      <div id="sort">
-        <label for="sort-select">Sort:</label>
-        <select name="sort" id="sort-select">
-          <option value="price-asc">Cheaper</option>
-          <option value="price-desc">Expensive</option>
-          <option value="date-asc">Recently published</option>
-          <option value="date-desc">Anciently published</option>
-        </select>
-      </div>
-    </section>
-    <section id="lego">
-      <h2>Lego sets</h2>
-      <div>
-        <label>Lego set id:</label>
-        <select id="lego-set-id-select"></select> 
-      </div>
-    </section>
-    <section id="indicators">
-      <h2>Indicators</h2>
-      <div>
-        <span>Number of deals</span>
-        <span id="nbDeals">0</span>
-      </div>
-      <div>
-        <span>Number of sales</span>
-        <span id="nbSales">0</span>
-      </div>
-      <div>
-        <span>p5 sales price value</span>
-        <span>0</span>
-      </div>
-      <div>
-        <span>p25 sales price value</span>
-        <span>0</span>
-      </div>
-      <div>
-        <span>p50 sales price value</span>
-        <span>0</span>
-      </div>
-      <div>
-        <span>Lifetime value</span>
-        <span>10 days</span>
-      </div>
-    </section>
-    <section id="deals"></section>
-    <script type="text/javascript" charset="UTF-8" src="utils.js"></script>
-    <script type="text/javascript" charset="UTF-8" src="portfolio.js"></script>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Filters Section -->
+        <section class="filters-section">
+          <div class="filters-group">
+            <div class="filters-grid">
+              <!-- Discount Filter -->
+              <div class="filter-group">
+                <label class="filter-label">Minimum Discount</label>
+                <div class="discount-controls">
+                  <input type="range" 
+                        id="discount-slider" 
+                        class="discount-slider" 
+                        min="0" 
+                        max="100" 
+                        step="1"
+                        value="0">
+                  <div class="discount-input-group">
+                    <input type="number" 
+                          id="discount-input" 
+                          class="discount-input"
+                          min="0"
+                          max="100"
+                          value="0">
+                    <span class="percentage-symbol">%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Lego Set Selector -->
+              <div class="filter-group">
+                <label class="filter-label">Lego Set</label>
+                <select id="lego-set-id-select" class="search-select">
+                  <option value="">All Sets</option>
+                </select>
+              </div>
+
+              <!-- Sort Selector -->
+              <div class="filter-group">
+                <label class="filter-label">Sort By</label>
+                <select id="sort-select" class="search-select">
+                  <option value="price-asc">Price: Low to High</option>
+                  <option value="price-desc">Price: High to Low</option>
+                  <option value="date-asc">Oldest First</option>
+                  <option value="date-desc" selected>Newest First</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Quick Filters -->
+            <div class="quick-filters">
+              <button class="pill-button" id="filter-most-commented">
+                <i class="fas fa-comment"></i> Popular
+              </button>
+              <button class="pill-button" id="filter-hot-deals">
+                <i class="fas fa-fire"></i> Hot
+              </button>
+              <button class="pill-button" id="filter-favorites">
+                <i class="fas fa-heart"></i> Favorites
+              </button>
+              <button class="pill-button clear-button" id="clear-filters">
+                <i class="fas fa-times"></i>
+                Clear All
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Stats Overview -->
+        <section class="stats-overview">
+          <div class="stat-card">
+            <div class="stat-value" id="nbDeals">0</div>
+            <div class="stat-label">Total Deals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="nbSales">0</div>
+            <div class="stat-label">Active Sales</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="p5">$0</div>
+            <div class="stat-label">5th Percentile</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="p25">$0</div>
+            <div class="stat-label">25th Percentile</div>
+          </div>
+          <div class="stat-card highlight">
+            <div class="stat-value" id="p50">$0</div>
+            <div class="stat-label">Median Price</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="lifetime">0d</div>
+            <div class="stat-label">Avg Lifetime</div>
+          </div>
+        </section>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading-state">
+          <i class="fas fa-spinner fa-spin"></i>
+          <span>Loading deals...</span>
+        </div>
+
+        <!-- Deals Grid -->
+        <section class="deals-grid" id="deals"></section>
+      </main>
+    </div>
+
+    <script src="portfolio.js"></script>
   </body>
 </html>
