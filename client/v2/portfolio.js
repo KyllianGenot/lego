@@ -191,6 +191,10 @@ const renderDeals = deals => {
   const template = deals
     .map(deal => {
       const isFavorited = favoriteDeals.some(fav => fav.uuid === deal.uuid);
+      // Calcul du nombre de jours depuis la publication
+      const currentTime = Math.floor(Date.now() / 1000);
+      const daysAgo = Math.floor((currentTime - deal.published) / 86400);
+      
       return `
       <article class="deal-card">
         <button class="favorite-btn ${isFavorited ? 'favorited' : ''}" 
@@ -225,6 +229,12 @@ const renderDeals = deals => {
           <div class="deal-property">
             <span class="deal-label">Temperature</span>
             <span class="deal-value">${deal.temperature}°C</span>
+          </div>
+
+          <!-- Nouvelle propriété ajoutée -->
+          <div class="deal-property">
+            <span class="deal-label">Days Ago</span>
+            <span class="deal-value">${daysAgo}</span>
           </div>
         </div>
         
@@ -340,6 +350,7 @@ const handleDiscountFilter = (value) => {
     render(currentDeals, currentPagination);
   }
   updateFilterStates();
+  updateClearButton();
 };
 
 /**
@@ -378,6 +389,7 @@ const applyFilter = (filterFunction, buttonId) => {
 
   render(filteredDeals, currentPagination, true);
   updateFilterStates();
+  updateClearButton();
 };
 
 /**
@@ -389,16 +401,23 @@ const clearFilters = () => {
   discountInput.value = 0;
   render(currentDeals, currentPagination);
   updateFilterStates();
+  updateClearButton();
   selectLegoSetIds.value = '';
   sortSelect.value = 'date-desc';
   const sortedDeals = [...currentDeals].sort((a, b) => b.published - a.published);
   render(sortedDeals, currentPagination);
 };
 
+const updateClearButton = () => {
+  const hasActiveFilters = activeFilters.size > 0;
+  clearFiltersButton.classList.toggle('active', hasActiveFilters);
+};
+
 // Event Listeners
 selectShow.addEventListener('change', async (event) => {
   const deals = await fetchDeals(currentPagination.currentPage, parseInt(event.target.value));
-  setCurrentDeals(deals);
+  const sorted = sortDeals(deals.result, sortSelect.value);
+  setCurrentDeals({ ...deals, result: sorted });
   render(currentDeals, currentPagination);
 });
 
@@ -406,9 +425,21 @@ selectPage.addEventListener('change', async (event) => {
   const page = parseInt(event.target.value);
   const size = parseInt(selectShow.value);
   const deals = await fetchDeals(page, size);
-  setCurrentDeals(deals);
+  const sorted = sortDeals(deals.result, sortSelect.value);
+  setCurrentDeals({ ...deals, result: sorted });
   render(currentDeals, currentPagination);
 });
+
+const sortDeals = (deals, sortValue) => {
+  return [...deals].sort((a, b) => {
+    switch(sortValue) {
+      case 'price-asc': return parseFloat(a.price) - parseFloat(b.price);
+      case 'price-desc': return parseFloat(b.price) - parseFloat(a.price);
+      case 'date-asc': return a.published - b.published;
+      default: return b.published - a.published; // date-desc par défaut
+    }
+  });
+};
 
 discountSlider.addEventListener('input', (e) => handleDiscountFilter(e.target.value));
 discountInput.addEventListener('input', (e) => handleDiscountFilter(e.target.value));
@@ -426,7 +457,7 @@ clearFiltersButton.addEventListener('click', clearFilters);
 
 sortSelect.addEventListener('change', () => {
   const sortValue = sortSelect.value;
-  let sortedDeals = [...currentDeals];
+  const sortedDeals = sortDeals(currentDeals, sortSelect.value);
 
   switch(sortValue) {
     case 'price-asc':
@@ -442,7 +473,7 @@ sortSelect.addEventListener('change', () => {
       sortedDeals.sort((a, b) => b.published - a.published);
       break;
   }
-  
+
   render(sortedDeals, currentPagination, true);
 });
 
