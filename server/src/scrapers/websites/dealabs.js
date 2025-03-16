@@ -2,7 +2,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const fs = require('fs').promises;
-const path = require('path'); // Add path module for resolving directories
+const path = require('path');
 
 // Enable stealth plugin to avoid detection
 puppeteer.use(StealthPlugin());
@@ -15,6 +15,82 @@ puppeteer.use(StealthPlugin());
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * Extracts Lego set number from title or URL
+ * @param {String} text - Text to extract set number from (title)
+ * @param {String} url - URL to extract set number from
+ * @returns {String|null} Lego set number or null if not found
+ */
+const extractLegoSetNumber = (text, url = '') => {
+  // First, try to find a number in parentheses (common format for set numbers)
+  const parenthesesMatch = text.match(/\(\d{4,6}\)/);
+  if (parenthesesMatch) {
+    const setNumber = parenthesesMatch[0].replace(/[\(\)]/g, '');
+    if (setNumber.length >= 4 && setNumber.length <= 6) {
+      return setNumber;
+    }
+  }
+
+  // If not found in parentheses, look for a standalone 4-6 digit number in the title
+  const titleMatches = text.match(/\b\d{4,6}\b/g);
+  if (titleMatches) {
+    // Filter out numbers that might be piece counts (e.g., 2228) by checking context
+    for (const match of titleMatches) {
+      // Skip if the number is followed by "pièces" (indicating piece count)
+      if (!text.toLowerCase().includes(`${match} pièces`)) {
+        return match;
+      }
+    }
+  }
+
+  // Finally, try to extract from the URL
+  const urlMatches = url.match(/\b\d{4,6}\b/g);
+  if (urlMatches) {
+    return urlMatches[0];
+  }
+
+  return null;
+};
+
+/**
+ * Clean up price data without rounding
+ * @param {String} priceText - Price text to clean
+ * @returns {Number|null} Cleaned price or null
+ */
+const cleanPrice = (priceText) => {
+  if (!priceText) return null;
+  const sanitized = priceText.replace(/[^\d,\.]/g, '').replace(',', '.');
+  const price = parseFloat(sanitized);
+  return isNaN(price) ? null : price;
+};
+
+/**
+ * Parse relative time like "Posté il y a 1 j" or "Publié il y a 3 h"
+ * @param {String} timeText - Time text to parse
+ * @returns {Date|null} Approximated date or null if parsing fails
+ */
+const parseRelativeTime = (timeText) => {
+  if (!timeText) return null;
+
+  const daysMatch = timeText.match(/(\d+)\s*j/);
+  const hoursMatch = timeText.match(/(\d+)\s*h/);
+  const minutesMatch = timeText.match(/(\d+)\s*min/);
+
+  const days = daysMatch ? parseInt(daysMatch[1]) : 0;
+  const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+  const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+
+  if (days === 0 && hours === 0 && minutes === 0) return null;
+
+  const now = new Date();
+  const approxDate = new Date(now);
+  approxDate.setDate(approxDate.getDate() - days);
+  approxDate.setHours(approxDate.getHours() - hours);
+  approxDate.setMinutes(approxDate.getMinutes() - minutes);
+
+  return approxDate;
+};
+
+/**
  * Parse HTML data from dealabs.com search/list pages
  * @param {String} data - HTML response
  * @return {Array} Array of deal objects
@@ -22,67 +98,97 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const parseSearchResults = (data) => {
   const $ = cheerio.load(data);
 
-  return $('.threadListCard') // Container for each deal in search/list pages
+  let threadsData = {};
+  const jsonLdScript = $('script[type="application/ld+json"]').html();
+  if (jsonLdScript) {
+    try {
+      const jsonLd = JSON.parse(jsonLdScript);
+      const threadItems = jsonLd['@graph']?.filter(item => item['@type'] === 'DiscussionForumPosting') || [];
+      threadItems.forEach(item => {
+        const threadIdMatch = item.url?.match(/\/(\d+)$/);
+        if (threadIdMatch && item.datePublished) {
+          const threadId = threadIdMatch[1];
+          threadsData[threadId] = new Date(item.datePublished);
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to parse JSON-LD in search results:', e.message);
+    }
+  }
+
+  return $('.threadListCard')
     .map((i, element) => {
-      const titleElement = $(element).find('.cept-tt.thread-link'); // Title selector
+      const titleElement = $(element).find('.cept-tt.thread-link');
       const title = titleElement.text().trim();
       const link = titleElement.attr('href');
 
-      const priceElement = $(element).find('.thread-price'); // Price selector
-      const price = priceElement.length ? parseFloat(priceElement.text().replace('€', '').replace(',', '.')) : null;
+      if (!title.toLowerCase().includes('lego')) return undefined;
 
-      // Temperature (e.g., "87°")
+      const setNumber = extractLegoSetNumber(title, link);
+
+      const priceElement = $(element).find('.thread-price');
+      let priceText = priceElement.length ? priceElement.text().trim() : '';
+      let price = cleanPrice(priceText);
+
+      if (!price) return undefined;
+
       const temperatureElement = $(element).find('.cept-vote-temp');
       const temperatureText = temperatureElement.text().trim();
-      const temperature = temperatureText ? parseInt(temperatureText.replace('°', '')) : null;
+      const temperature = temperatureText ? parseInt(temperatureText.replace('°', '')) : 0;
 
-      // Posted Time (e.g., "Posté il y a 9 h.")
-      const postedTimeElement = $(element).find('.chip--type-default .size--all-s');
-      const postedTime = postedTimeElement.text().trim();
+      let postedDate = null;
+      const threadIdMatch = link.match(/\/(\d+)$/);
+      if (threadIdMatch && threadsData[threadIdMatch[1]]) {
+        postedDate = threadsData[threadIdMatch[1]];
+      } else {
+        const postedTimeElement = $(element).find('.chip--type-default .size--all-s');
+        const timestampText = postedTimeElement.text().trim() || '';
+        const approxDate = parseRelativeTime(timestampText);
+        if (approxDate) {
+          postedDate = approxDate;
+        }
+      }
 
-      // Merchant (e.g., "Carrefour")
-      const merchantElement = $(element).find('.color--text-TranslucentSecondary a.color--text-AccentBrand');
-      const merchant = merchantElement.text().trim();
-
-      // Shared By (e.g., "Partagé par ClemS")
-      const sharedByElement = $(element).find('.color--text-TranslucentSecondary .overflow--ellipsis');
-      const sharedByText = sharedByElement.text().trim();
-      const sharedByMatch = sharedByText.match(/Partagé par (.+)/);
-      const sharedBy = sharedByMatch ? sharedByMatch[1] : '';
-
-      // Description (e.g., "Meilleure offre que le dernier deal...")
-      const descriptionElement = $(element).find('.userHtml-content');
-      const description = descriptionElement.text().trim();
-
-      // Shipping Cost (e.g., "Gratuit")
       const shippingElement = $(element).find('.icon--truck').parent().find('.overflow--wrap-off');
-      const shippingCost = shippingElement.text().trim() || 'Unknown';
+      const shippingText = shippingElement.text().trim();
+      const freeShipping = shippingText.toLowerCase().includes('gratuit');
+      if (!freeShipping && shippingText) {
+        const shippingCost = cleanPrice(shippingText);
+        if (shippingCost) {
+          price += shippingCost; // Add shipping cost to total price
+        }
+      }
 
-      // Comments Count (e.g., "14")
       const commentsElement = $(element).find('a[title="Commentaires"]');
       const commentsText = commentsElement.text().trim();
       const commentsCount = commentsText ? parseInt(commentsText) : 0;
 
-      // Image URL
       const imageElement = $(element).find('.threadListCard-image img');
-      const imageUrl = imageElement.attr('src') || '';
-
-      // Filter for Lego deals
-      if (title.toLowerCase().includes('lego')) {
-        return {
-          title,
-          price,
-          link: link.startsWith('http') ? link : `https://www.dealabs.com${link}`,
-          temperature,
-          postedTime,
-          merchant,
-          sharedBy,
-          description,
-          shippingCost,
-          commentsCount,
-          imageUrl,
-        };
+      let imageUrl = '';
+      const srcset = imageElement.attr('srcset');
+      if (srcset) {
+        const srcsetOptions = srcset.split(',').map(opt => opt.trim());
+        const highestRes = srcsetOptions.reduce((prev, curr) => {
+          const currRes = parseInt(curr.match(/(\d+)x\d+/)?.[1] || 0);
+          const prevRes = parseInt(prev.match(/(\d+)x\d+/)?.[1] || 0);
+          return currRes > prevRes ? curr : prev;
+        }, srcsetOptions[0]);
+        imageUrl = highestRes.split(' ')[0];
+      } else {
+        imageUrl = imageElement.attr('src') || '';
       }
+
+      return {
+        setNumber,
+        title,
+        price,
+        link: link.startsWith('http') ? link : `https://www.dealabs.com${link}`,
+        temperature,
+        postedDate: postedDate ? postedDate.toISOString() : null,
+        freeShipping,
+        commentsCount,
+        imageUrl,
+      };
     })
     .get()
     .filter(item => item !== undefined);
@@ -97,72 +203,155 @@ const parseSearchResults = (data) => {
 const parseProductPage = (data, url) => {
   const $ = cheerio.load(data);
 
-  // Extract product details
   const titleElement = $('.thread-title span') || $('h1');
   const title = titleElement.text().trim() || $('title').text().trim();
 
-  const priceElement = $('.thread-price, .threadItemCard-price');
-  const priceText = priceElement.text().trim();
-  const price = priceText ? parseFloat(priceText.replace('€', '').replace(',', '.')) : null;
+  if (!title.toLowerCase().includes('lego')) return [];
 
-  // Temperature
+  const setNumber = extractLegoSetNumber(title, url);
+
+  const priceElement = $('.thread-price, .threadItemCard-price');
+  let priceText = priceElement.text().trim();
+  let price = cleanPrice(priceText);
+
   const temperatureElement = $('.cept-vote-temp');
   const temperatureText = temperatureElement.text().trim();
-  const temperature = temperatureText ? parseInt(temperatureText.replace('°', '')) : null;
+  const temperature = temperatureText ? parseInt(temperatureText.replace('°', '')) : 0;
 
-  // Posted Time
-  const postedTimeElement = $('.size--all-s.color--text-TranslucentSecondary').filter(function () {
-    return $(this).text().includes('Publié il y a');
-  });
-  const postedTime = postedTimeElement.text().trim() || 'Unknown';
+  const postedTimeElement = $('.size--all-s.color--text-TranslucentSecondary[title]');
+  const timestampText = postedTimeElement.attr('title') || '';
+  let postedDate = null;
 
-  // Merchant
-  const merchantElement = $('.color--text-TranslucentSecondary a.color--text-AccentBrand');
-  const merchant = merchantElement.text().trim() || '';
-
-  // Shared By
-  const sharedByElement = $('.thread-user a');
-  const sharedBy = sharedByElement.text().trim() || 'Unknown';
-
-  // Description
-  const descriptionElement = $('.userHtml-content');
-  const description = descriptionElement.text().trim() || '';
-
-  // Shipping Cost
-  const shippingElement = $('.icon--truck').parent().find('.overflow--wrap-off');
-  const shippingCost = shippingElement.text().trim() || 'Unknown';
-
-  // Comments Count
-  const commentsElement = $('a[title="Commentaires"]');
-  const commentsText = commentsElement.text().trim();
-  const commentsCount = commentsText ? parseInt(commentsText) : 0;
-
-  // Image URL
-  const imageElement = $('.thread-image, .carousel-thumbnail-img, .threadItemCard-img img');
-  const imageUrl = imageElement.first().attr('src') || '';
-
-  // Filter for Lego deals
-  if (title.toLowerCase().includes('lego')) {
-    return [{
-      title,
-      price,
-      link: url,
-      temperature,
-      postedTime,
-      merchant,
-      sharedBy,
-      description,
-      shippingCost,
-      commentsCount,
-      imageUrl,
-    }];
+  if (timestampText) {
+    const months = {
+      'janvier': 0, 'février': 1, 'mars': 2, 'avril': 3, 'mai': 4, 'juin': 5,
+      'juillet': 6, 'août': 7, 'septembre': 8, 'octobre': 9, 'novembre': 10, 'décembre': 11
+    };
+    const match = timestampText.match(/(\d+)\s*(\w+)\s*(\d+),\s*(\d+):(\d+):(\d+)/);
+    if (match) {
+      const day = parseInt(match[1]);
+      const month = months[match[2].toLowerCase()];
+      const year = parseInt(match[3]);
+      const hours = parseInt(match[4]);
+      const minutes = parseInt(match[5]);
+      const seconds = parseInt(match[6]);
+      postedDate = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
+    }
   }
 
-  return [];
+  const shippingElement = $('.icon--truck').parent().find('.overflow--wrap-off');
+  const shippingText = shippingElement.text().trim();
+  const freeShipping = shippingText.toLowerCase().includes('gratuit');
+  if (!freeShipping && shippingText) {
+    const shippingCost = cleanPrice(shippingText);
+    if (shippingCost) {
+      price = price ? price + shippingCost : shippingCost;
+    }
+  }
+
+  const commentsElement = $('h2.flex--inline.boxAlign-ai--all-c span.size--all-l, h2.flex--inline.boxAlign-ai--all-c span.size--fromW3-xl');
+  const commentsText = commentsElement.first().text().trim();
+  const commentsCountMatch = commentsText.match(/(\d+)\s*commentaires/);
+  let commentsCount = commentsCountMatch ? parseInt(commentsCountMatch[1]) : 0;
+
+  if (commentsCount === 0) {
+    const jsonLdScript = $('script[type="application/ld+json"]').html();
+    if (jsonLdScript) {
+      try {
+        const jsonLd = JSON.parse(jsonLdScript);
+        const interactionStats = jsonLd['@type'] === 'DiscussionForumPosting' ? jsonLd.interactionStatistic : jsonLd['@graph']?.find(item => item['@type'] === 'DiscussionForumPosting')?.interactionStatistic;
+        if (interactionStats && Array.isArray(interactionStats)) {
+          const commentStat = interactionStats.find(stat => stat.interactionType['@type'] === 'https://schema.org/CommentAction');
+          if (commentStat) {
+            commentsCount = commentStat.userInteractionCount || 0;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse JSON-LD:', e.message);
+      }
+    }
+  }
+
+  const imageElement = $('.thread-image, .carousel-thumbnail-img, .threadItemCard-img picture');
+  let imageUrl = '';
+  const sourceElement = imageElement.find('source[media="(min-width: 768px)"]');
+  if (sourceElement.length) {
+    imageUrl = sourceElement.attr('srcset') || '';
+  } else {
+    const imgElement = imageElement.find('img').first();
+    imageUrl = imgElement.attr('src') || '';
+  }
+
+  return [{
+    setNumber,
+    title,
+    price,
+    link: url,
+    temperature,
+    postedDate: postedDate ? postedDate.toISOString() : null,
+    freeShipping,
+    commentsCount,
+    imageUrl,
+  }];
 };
 
 /**
- * Scrape deals from dealabs.com with retry and fallback mechanisms
+ * Save deals to file, updating existing entries based on source
+ * @param {Array} newDeals - Array of deal objects to save
+ * @param {String} filePath - Path to save the file
+ * @param {boolean} isProductPage - Whether the deals come from a product page
+ */
+const saveDealsToFile = async (newDeals, filePath, isProductPage) => {
+  try {
+    const fileDir = path.dirname(filePath);
+    await fs.mkdir(fileDir, { recursive: true });
+
+    let existingDeals = [];
+    try {
+      const fileData = await fs.readFile(filePath, 'utf8');
+      existingDeals = JSON.parse(fileData);
+    } catch (err) {
+      console.log(`Creating new deals file at ${filePath}`);
+    }
+
+    const existingDealsMap = new Map();
+    existingDeals.forEach(deal => {
+      if (deal.link) {
+        existingDealsMap.set(deal.link, deal);
+      }
+    });
+
+    newDeals.forEach(newDeal => {
+      const key = newDeal.link;
+      if (!key) return;
+
+      if (existingDealsMap.has(key)) {
+        const existingIndex = existingDeals.findIndex(d => d.link === newDeal.link);
+        if (existingIndex !== -1) {
+          if (isProductPage) {
+            existingDeals[existingIndex] = { ...newDeal };
+          } else {
+            existingDeals[existingIndex] = {
+              ...existingDeals[existingIndex],
+              temperature: newDeal.temperature,
+              commentsCount: newDeal.commentsCount,
+            };
+          }
+        }
+      } else {
+        existingDeals.push(newDeal);
+      }
+    });
+
+    await fs.writeFile(filePath, JSON.stringify(existingDeals, null, 2));
+    console.log(`✅ Saved ${existingDeals.length} deals to ${filePath}`);
+  } catch (error) {
+    console.error(`❌ Error saving deals to file: ${error.message}`);
+  }
+};
+
+/**
+ * Scrape deals from dealabs.com with retry mechanism
  * @param {String} url - URL to scrape
  * @returns {Array} Array of deal objects
  */
@@ -170,12 +359,10 @@ module.exports.scrape = async (url) => {
   const maxRetries = 3;
   let attempt = 0;
 
-  // If it's a direct product URL, handle it differently
   const isProductPage = url.includes('/bons-plans/') && !url.includes('search');
 
   while (attempt < maxRetries) {
     try {
-      // Launch with more options to avoid detection
       const browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -188,73 +375,49 @@ module.exports.scrape = async (url) => {
 
       const page = await browser.newPage();
 
-      // Set a more realistic user agent
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36');
-
-      // Set viewport to mimic a real browser
       await page.setViewport({ width: 1366, height: 768 });
 
-      // Bypass some common bot detections
       await page.evaluateOnNewDocument(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
         window.chrome = { runtime: {} };
       });
 
-      // Navigate to the page
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 90000, // 90-second timeout
-      });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+      await delay(5000);
 
-      // Add a small delay to allow JS to execute
-      await delay(2000);
+      try {
+        const cookieSelector = '[id*="cookie"] button, [class*="cookie"] button, [id*="consent"] button';
+        const cookieButton = await page.$(cookieSelector);
+        if (cookieButton) {
+          await cookieButton.click();
+          await delay(1000);
+        }
+      } catch (e) {
+        console.log('No cookie banner or error handling it:', e.message);
+      }
 
       let body;
       let deals = [];
 
       if (isProductPage) {
-        // Wait for the product page content
         await page.waitForSelector('.threadItemCard-content, article[data-handler="history thread-click"]', { timeout: 30000 });
-
         body = await page.content();
         deals = parseProductPage(body, url);
       } else {
-        // Wait for the search/list page content
-        try {
-          await page.waitForSelector('.threadListCard', { timeout: 30000 });
-        } catch (e) {
-          const selectors = [
-            'article[data-handler="history thread-click"]',
-            '.thread--deal',
-            '.threadGrid',
-          ];
-
-          for (const selector of selectors) {
-            try {
-              await page.waitForSelector(selector, { timeout: 10000 });
-              break;
-            } catch (err) {
-              console.log(`Selector ${selector} not found`);
-            }
-          }
-        }
-
+        await page.waitForSelector('.threadListCard', { timeout: 90000 });
         body = await page.content();
         deals = parseSearchResults(body);
       }
 
       await browser.close();
 
-      // Check if we got any deals
       if (deals.length > 0 || (isProductPage && deals.length === 0)) {
-        // Save results to lego/server/data
-        const dataDir = path.resolve(__dirname, '../../../data');
-        await fs.mkdir(dataDir, { recursive: true });
-        const filePath = path.join(dataDir, 'deals_dealabs.json');
-        await fs.writeFile(filePath, JSON.stringify(deals, null, 2));
+        const filePath = path.resolve(__dirname, '../../../data/deals_dealabs.json');
+        await saveDealsToFile(deals, filePath, isProductPage);
         return deals;
       } else {
-        throw new Error('No deals found in the parsed content');
+        throw new Error('No Lego deals found in the parsed content');
       }
     } catch (e) {
       attempt++;
@@ -265,7 +428,6 @@ module.exports.scrape = async (url) => {
         return [];
       }
 
-      // Wait before retrying with exponential backoff
       await delay(2000 * attempt);
     }
   }
