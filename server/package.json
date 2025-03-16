@@ -5,12 +5,17 @@
   "main": "index.js",
   "repository": "git@github.com:92bondstreet/lego.git",
   "dependencies": {
+    "chalk": "^5.4.1",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "node-fetch": "^2.7.0",
+    "ora": "^8.2.0",
     "parse-domain": "^8.2.2",
+    "puppeteer": "^24.4.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "require-all": "^3.0.0",
     "uuid": "^11.0.5"
   },
