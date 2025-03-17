@@ -344,7 +344,6 @@ const saveDealsToFile = async (newDeals, filePath, isProductPage) => {
     });
 
     await fs.writeFile(filePath, JSON.stringify(existingDeals, null, 2));
-    console.log(`✅ Saved ${existingDeals.length} deals to ${filePath}`);
   } catch (error) {
     console.error(`❌ Error saving deals to file: ${error.message}`);
   }

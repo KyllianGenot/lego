@@ -166,9 +166,6 @@ const parseSearchResults = (data, searchSetNumber = null) => {
       // Extract image URL
       const imageUrl = imageElement.attr('src') || '';
 
-      // Debug log to track processed links
-      console.log(`Processing link: ${fullLink}`);
-
       return {
         setNumber,
         title,
@@ -383,7 +380,6 @@ const saveSalesToFile = async (newSales, filePath, isProductPage) => {
     });
 
     await fs.writeFile(filePath, JSON.stringify(existingSales, null, 2));
-    console.log(`✅ Saved ${existingSales.length} sales to ${filePath}`);
   } catch (error) {
     console.error(`❌ Error saving sales to file: ${error.message}`);
   }
