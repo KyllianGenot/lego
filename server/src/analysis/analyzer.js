@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { startSpinner, updateSpinnerText, stopSpinner } = require('../utils/spinner');
+const { MongoClient } = require('mongodb');
+const { startSpinner, updateSpinnerText, stopSpinner, log } = require('../utils/spinner');
 const { safeScrape } = require('../scrapers/scraperUtils');
 const dealabs = require('../scrapers/websites/dealabs');
 const vinted = require('../scrapers/websites/vinted');
@@ -8,144 +9,189 @@ const { cleanSetName } = require('./cleaners');
 const { isRelevantListing } = require('./filters');
 const { calculateProfitability } = require('./calculators');
 const { displayProfitabilitySummary } = require('./display');
+require('dotenv').config(); // Load environment variables
+
+// MongoDB configuration
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
 /**
  * Analyzes the profitability of a LEGO set by comparing source price with Vinted selling prices
- * Updates Dealabs and Vinted data files, then uses the updated files for analysis
+ * Stores scraped data in MongoDB and uses MongoDB for analysis
  * @param {string} input - URL from Dealabs or a LEGO set name
  * @returns {Object} Profitability analysis results
  */
 async function analyzeProfitability(input) {
+  let client;
   let setId = '';
   const dataDir = path.resolve(__dirname, '../../data');
 
-  // Step 1: Process input and scrape Dealabs
-  if (input.startsWith('http')) {
-    if (input.includes('dealabs.com')) {
-      // It's a dealabs URL
-      await startSpinner(`📥 Scraping Dealabs from link "${input}"`);
-      await safeScrape(dealabs.scrape, input, 'dealabs.com');
-      
-      // Extract set ID from scraped data
-      try {
-        const dealabsData = await fs.readFile(`${dataDir}/deals_dealabs.json`, 'utf8');
-        const deals = JSON.parse(dealabsData);
-        const deal = deals.find(d => d.link === input);
-        if (deal && deal.setNumber) {
-          setId = deal.setNumber;
-          updateSpinnerText(`✅ Found set ID: ${setId}`);
-        } else {
-          // Try to extract from URL as fallback
-          const setIdMatch = input.match(/(\d{4,5})/);
-          setId = setIdMatch ? setIdMatch[0] : '';
-          if (setId) {
-            updateSpinnerText(`⚠️ Extracted potential set ID from URL: ${setId}`);
+  try {
+    // Connect to MongoDB
+    client = await MongoClient.connect(MONGODB_URI);
+    const db = client.db(MONGODB_DB_NAME);
+    const dealsCollection = db.collection('deals');
+    const salesCollection = db.collection('sales');
+
+    // Create unique indexes to prevent duplicates
+    await dealsCollection.createIndex({ link: 1 }, { unique: true });
+    await salesCollection.createIndex({ link: 1 }, { unique: true });
+
+    // Step 1: Process input and scrape Dealabs
+    let dealabsDeals = [];
+    if (input.startsWith('http')) {
+      if (input.includes('dealabs.com')) {
+        // It's a Dealabs URL
+        await startSpinner(`Scraping Dealabs from link "${input}"`);
+        
+        try {
+          dealabsDeals = await dealabs.scrape(input);
+          updateSpinnerText(`Scraped ${dealabsDeals.length} deals from Dealabs`);
+          
+          // Extract set ID from scraped data
+          const deal = dealabsDeals.find(d => d.link === input);
+          if (deal && deal.setNumber) {
+            setId = deal.setNumber;
+            updateSpinnerText(`Found set ID: ${setId}`);
+          } else {
+            // Try to extract from URL as fallback
+            const setIdMatch = input.match(/(\d{4,5})/);
+            setId = setIdMatch ? setIdMatch[0] : '';
+            if (setId) {
+              updateSpinnerText(`Extracted potential set ID from URL: ${setId}`);
+            }
           }
+          
+          // Update or insert scraped Dealabs data into MongoDB
+          if (dealabsDeals && dealabsDeals.length > 0) {
+            for (const deal of dealabsDeals) {
+              await dealsCollection.updateOne(
+                { link: deal.link },       // Filter by unique link
+                { $set: deal },            // Replace with latest data
+                { upsert: true }           // Insert if not found
+              );
+            }
+            updateSpinnerText(`Updated ${dealabsDeals.length} deals in database`);
+          }
+        } catch (scrapeError) {
+          updateSpinnerText(`Error scraping Dealabs: ${scrapeError.message}`);
         }
-      } catch (err) {
-        stopSpinner();
-        console.log('❌ Could not extract set ID from Dealabs data:', err.message);
+      } else {
+        await stopSpinner();
+        log('❌ Unsupported URL. Please provide a dealabs.com URL or LEGO set ID');
         return null;
       }
     } else {
-      console.log('❌ Unsupported URL. Please provide a dealabs.com URL or LEGO set ID');
+      // Input is a set ID
+      setId = input;
+      await startSpinner(`Scraping Dealabs for set "${setId}"`);
+      
+      try {
+        dealabsDeals = await dealabs.scrape(`https://www.dealabs.com/search?q=${encodeURIComponent(setId)}`);
+        updateSpinnerText(`Scraped ${dealabsDeals.length} deals from Dealabs`);
+        
+        // Update or insert scraped Dealabs data into MongoDB
+        if (dealabsDeals && dealabsDeals.length > 0) {
+          for (const deal of dealabsDeals) {
+            await dealsCollection.updateOne(
+              { link: deal.link },       // Filter by unique link
+              { $set: deal },            // Replace with latest data
+              { upsert: true }           // Insert if not found
+            );
+          }
+          updateSpinnerText(`Updated ${dealabsDeals.length} deals in database`);
+        }
+      } catch (scrapeError) {
+        updateSpinnerText(`Error scraping Dealabs: ${scrapeError.message}`);
+      }
+    }
+
+    if (!setId) {
+      await stopSpinner();
+      log('❌ Could not determine set ID');
       return null;
     }
-  } else {
-    // Input is a set ID, start with Dealabs scraping
-    setId = input;
-    await startSpinner(`📥 Scraping Dealabs for set "${setId}"`);
-    await safeScrape(
-      dealabs.scrape,
-      `https://www.dealabs.com/search?q=${encodeURIComponent(setId)}`,
-      'dealabs.com'
+
+    // Step 2: Scrape Vinted with the identified set ID
+    updateSpinnerText(`Scraping Vinted for set "${setId}"`);
+    
+    let vintedDeals = [];
+    try {
+      const vintedUrl = `https://www.vinted.fr/catalog?search_text=${encodeURIComponent(setId)}`;
+      vintedDeals = await vinted.scrape(vintedUrl);
+      updateSpinnerText(`Scraped ${vintedDeals.length} listings from Vinted`);
+      
+      // Update or insert scraped Vinted data into MongoDB
+      if (vintedDeals && vintedDeals.length > 0) {
+        for (const listing of vintedDeals) {
+          await salesCollection.updateOne(
+            { link: listing.link },     // Filter by unique link
+            { $set: listing },          // Replace with latest data
+            { upsert: true }            // Insert if not found
+          );
+        }
+        updateSpinnerText(`Updated ${vintedDeals.length} listings in database`);
+      }
+    } catch (scrapeError) {
+      updateSpinnerText(`Error scraping Vinted: ${scrapeError.message}`);
+    }
+
+    // Step 3: Load updated data from MongoDB
+    const allDealabsDeals = await dealsCollection.find({ setNumber: setId }).toArray();
+    const allVintedDeals = await salesCollection.find({ setNumber: setId }).toArray();
+
+    // Step 4: Filter and select source deal from Dealabs data
+    let sourceDeal = null;
+    const allSourceDeals = allDealabsDeals
+      .map(deal => ({ ...deal, source: 'dealabs.com' }));
+
+    if (allSourceDeals.length > 0) {
+      sourceDeal = allSourceDeals
+        .filter(deal => deal.price !== null && deal.price !== undefined)
+        .sort((a, b) => a.price - b.price)[0]; // Take the cheapest deal
+    }
+
+    if (!sourceDeal) {
+      await stopSpinner();
+      log(`❌ No valid deals found for set ID "${setId}" in Dealabs data`);
+      return null;
+    }
+
+    await stopSpinner();
+    log(`✅ Found deal: ${sourceDeal.title} at ${sourceDeal.price}€`);
+
+    // Step 5: Filter Vinted deals
+    await startSpinner(`Filtering Vinted listings for set "${setId}"`);
+    const relevantResults = allVintedDeals.filter(deal =>
+      deal.setNumber === setId && isRelevantListing(deal.title, setId)
     );
-  }
 
-  if (!setId) {
-    stopSpinner();
-    console.log('❌ Could not determine set ID');
+    await stopSpinner();
+
+    // Step 6: Perform profitability analysis
+    const analysis = calculateProfitability(sourceDeal, relevantResults);
+
+    // Step 7: Save analysis to file
+    try {
+      await fs.mkdir(dataDir, { recursive: true });
+      await fs.writeFile(`${dataDir}/profitability_analysis.json`, JSON.stringify(analysis, null, 2));
+    } catch (error) {
+      log(`\n⚠️ Warning: Could not save analysis to file: ${error.message}`);
+    }
+
+    log('✅ Analysis complete');
+    displayProfitabilitySummary(analysis);
+
+    return analysis;
+  } catch (error) {
+    await stopSpinner();
+    console.error('Error during analysis:', error);
     return null;
-  }
-
-  // Step 2: Scrape Vinted with the identified set ID
-  updateSpinnerText(`🌐 Scraping Vinted for set "${setId}"`);
-  const vintedUrl = `https://www.vinted.fr/catalog?search_text=${encodeURIComponent(setId)}`;
-  await safeScrape(vinted.scrape, vintedUrl, 'vinted.fr');
-
-  // Step 3: Load updated data from files
-  let dealabsDeals = [];
-  let vintedDeals = [];
-
-  try {
-    const dealabsData = await fs.readFile(`${dataDir}/deals_dealabs.json`, 'utf8');
-    dealabsDeals = JSON.parse(dealabsData);
-  } catch (err) {
-    stopSpinner();
-    console.log('❌ Failed to load updated Dealabs data:', err.message);
-    return null;
-  }
-
-  try {
-    const vintedData = await fs.readFile(`${dataDir}/sales_vinted.json`, 'utf8');
-    vintedDeals = JSON.parse(vintedData);
-  } catch (err) {
-    stopSpinner();
-    console.log('❌ Failed to load updated Vinted data:', err.message);
-    return null;
-  }
-
-  // Step 4: Filter and select source deal from Dealabs data
-  let sourceDeal = null;
-  const allSourceDeals = dealabsDeals
-    .filter(deal => deal.setNumber === setId)
-    .map(deal => ({ ...deal, source: 'dealabs.com' }));
-
-  if (allSourceDeals.length > 0) {
-    sourceDeal = allSourceDeals
-      .filter(deal => deal.price !== null && deal.price !== undefined)
-      .sort((a, b) => a.price - b.price)[0]; // Take the cheapest deal
-  }
-
-  if (!sourceDeal) {
-    stopSpinner();
-    console.log(`❌ No valid deals found for set ID "${setId}" in Dealabs data`);
-    return null;
-  }
-
-  stopSpinner();
-  console.log(`✅ Found deal: ${sourceDeal.title} at ${sourceDeal.price}€`);
-
-  // Step 5: Filter Vinted deals
-  await startSpinner(`🌐 Filtering Vinted listings for set "${setId}"`);
-  const relevantResults = vintedDeals.filter(deal =>
-    deal.setNumber === setId && isRelevantListing(deal.title, setId)
-  );
-
-  stopSpinner();
-
-  // Step 6: Perform profitability analysis
-  const analysis = calculateProfitability(sourceDeal, relevantResults);
-
-  // Step 7: Save analysis
-  try {
-    await fs.mkdir(dataDir, { recursive: true });
-  } catch (err) {
-    if (err.code !== 'EEXIST') {
-      console.log(`⚠️ Warning: Could not create data directory: ${err.message}`);
+  } finally {
+    if (client) {
+      await client.close();
     }
   }
-
-  try {
-    await fs.writeFile(`${dataDir}/profitability_analysis.json`, JSON.stringify(analysis, null, 2));
-  } catch (error) {
-    console.log(`\n⚠️ Warning: Could not save analysis to file: ${error.message}`);
-  }
-
-  console.log('✅ Analysis complete');
-  displayProfitabilitySummary(analysis);
-
-  return analysis;
 }
 
 module.exports = { analyzeProfitability };

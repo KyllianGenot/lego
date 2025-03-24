@@ -1,64 +1,114 @@
+/**
+ * A simple console spinner with controlled output
+ */
+
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 let spinnerInterval = null;
-let dots = 0;
-const maxDots = 3;
-let currentText = '';
-let isSpinning = false;
+let frameIndex = 0;
+let message = '';
+let isActive = false;
 
-// Helper function to clear the current line in the terminal
-function clearLine() {
-  process.stdout.clearLine(0); // Clear the current line
-  process.stdout.cursorTo(0); // Move cursor to the beginning of the line
-}
-
+/**
+ * Start the spinner
+ * @param {string} text - Initial message to display with the spinner
+ */
 async function startSpinner(text) {
-  stopSpinner(); // Ensure any previous spinner is stopped
-  currentText = text;
-  dots = 0;
-  isSpinning = true;
-
-  // Print initial spinner state
-  clearLine();
-  process.stdout.write(`${text} `);
-
-  // Ensure at least one animation frame is displayed
-  spinnerInterval = setInterval(() => {
-    if (!isSpinning) return;
-
-    dots = (dots + 1) % (maxDots + 1);
-    const dotString = '.'.repeat(dots);
-    const paddingString = ' '.repeat(maxDots - dots);
-
-    clearLine();
-    process.stdout.write(`${currentText} ${dotString}${paddingString}`);
-  }, 300); // Update dots every 300ms
-
-  // Ensure the spinner is visible for at least a short time
-  await new Promise(resolve => setTimeout(resolve, 300));
-}
-
-function updateSpinnerText(text) {
-  if (spinnerInterval && isSpinning) {
-    currentText = text;
-    clearLine();
-    process.stdout.write(`${text} ${''.padEnd(maxDots)}`);
-    dots = 0;
+  if (isActive) {
+    await stopSpinner();
   }
+
+  message = text;
+  isActive = true;
+
+  // Clear the current line and move cursor to start
+  process.stdout.clearLine(0);
+  process.stdout.cursorTo(0);
+  process.stdout.write(`${spinnerFrames[frameIndex]} ${message}`);
+
+  // Start the spinning animation
+  spinnerInterval = setInterval(() => {
+    if (!isActive) return;
+
+    frameIndex = (frameIndex + 1) % spinnerFrames.length;
+
+    // Overwrite the current line
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write(`${spinnerFrames[frameIndex]} ${message}`);
+  }, 80);
+
+  return new Promise(resolve => setTimeout(resolve, 100));
 }
 
-function stopSpinner() {
-  if (spinnerInterval) {
-    clearInterval(spinnerInterval);
-    spinnerInterval = null;
-    isSpinning = false;
-    clearLine();
+/**
+ * Update the spinner text
+ * @param {string} text - New message to display with the spinner
+ */
+function updateSpinnerText(text) {
+  if (isActive) {
+    message = text;
+    // Immediately update the current line
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write(`${spinnerFrames[frameIndex]} ${message}`);
+  } else {
+    // If no spinner is active, log normally
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write(text + '\n');
   }
 }
 
 /**
- * Helper function to create a delay using Promise and setTimeout
+ * Stop the spinner
+ */
+async function stopSpinner() {
+  return new Promise(resolve => {
+    if (!isActive) {
+      resolve();
+      return;
+    }
+
+    isActive = false;
+    clearInterval(spinnerInterval);
+    spinnerInterval = null;
+
+    // Clear the spinner line and show the final message
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write(message + '\n');
+
+    resolve();
+  });
+}
+
+/**
+ * Log a message without interfering with the spinner
+ * @param {string} text - Message to log
+ */
+function log(text) {
+  if (isActive) {
+    // Temporarily stop spinner, log, and restart
+    clearInterval(spinnerInterval);
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+    process.stdout.write(text + '\n');
+    spinnerInterval = setInterval(() => {
+      if (!isActive) return;
+      frameIndex = (frameIndex + 1) % spinnerFrames.length;
+      process.stdout.clearLine(0);
+      process.stdout.cursorTo(0);
+      process.stdout.write(`${spinnerFrames[frameIndex]} ${message}`);
+    }, 80);
+  } else {
+    process.stdout.write(text + '\n');
+  }
+}
+
+/**
+ * Create a delay
  * @param {number} ms - Milliseconds to delay
- * @returns {Promise} Resolves after the specified delay
  */
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-module.exports = { startSpinner, updateSpinnerText, stopSpinner, delay };
+module.exports = { startSpinner, updateSpinnerText, stopSpinner, log, delay };
