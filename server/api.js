@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const { MongoClient, ObjectId } = require('mongodb');
 require('dotenv').config();
 
+const { analyzeProfitability } = require('./src/exec/executeAnalysis'); // Import the analyzeProfitability function
+
 const PORT = 8092;
 
 // MongoDB configuration
@@ -59,7 +61,7 @@ app.get('/deals/search', async (request, response) => {
     // Log to confirm endpoint is hit
     console.log('GET /deals/search called with query:', request.query);
 
-    const dealsCollection = db.collection('deals');
+    const analyzesCollection = db.collection('analyzes'); // Use the analyzes collection
 
     // Extract and validate query parameters
     const limit = parseInt(request.query.limit) || 12; // Default to 12 if not provided or invalid
@@ -70,38 +72,41 @@ app.get('/deals/search', async (request, response) => {
     // Build the MongoDB query
     let query = {};
     if (price) {
-      query.price = { $lte: price }; // Deals with price less than or equal to the specified value
+      query['sourceDeal.price'] = { $lte: price }; // Deals with price less than or equal to the specified value
     }
     if (date && !isNaN(date.getTime())) { // Ensure date is valid
-      query.postedDate = { $gte: date.toISOString() }; // Deals posted on or after the date
+      query.timestamp = { $gte: date.toISOString() }; // Analysis posted on or after the date
     }
 
     // Define sorting criteria
-    let sortCriteria = { price: 1 }; // Default: sort by price ascending
+    let sortCriteria = { 'sourceDeal.price': 1 }; // Default: sort by price ascending
     if (filterBy === 'best-discount') {
-      sortCriteria = { temperature: -1 }; // Sort by temperature descending
+      sortCriteria = { dealScore: -1 }; // Sort by deal score descending
     } else if (filterBy === 'most-commented') {
-      sortCriteria = { commentsCount: -1 }; // Sort by comments count descending
+      sortCriteria = { 'sourceDeal.commentsCount': -1 }; // Sort by comments count descending
     }
 
     // Execute the query
-    const deals = await dealsCollection.find(query).sort(sortCriteria).limit(limit).toArray();
-    const total = await dealsCollection.countDocuments(query);
+    const analyzes = await analyzesCollection.find(query).sort(sortCriteria).limit(limit).toArray();
+    const total = await analyzesCollection.countDocuments(query);
 
-    // Format the results
-    const formattedResults = deals.map(deal => ({
-      _id: deal._id.toString(),
-      link: deal.link,
-      retail: deal.retail || null,
-      price: deal.price,
-      discount: deal.discount || null,
-      temperature: deal.temperature,
-      photo: deal.imageUrl,
-      comments: deal.commentsCount,
-      published: deal.postedDate ? Math.floor(new Date(deal.postedDate).getTime() / 1000) : null,
-      title: deal.title,
-      id: deal.setNumber,
+    // Format the results to include analysis data
+    const formattedResults = analyzes.map(analysis => ({
+      _id: analysis._id.toString(),
+      link: analysis.sourceDeal.link,
+      retail: analysis.sourceDeal.retail || null,
+      price: analysis.sourceDeal.price,
+      discount: analysis.sourceDeal.discount || null,
+      temperature: analysis.sourceDeal.temperature,
+      photo: analysis.sourceDeal.imageUrl,
+      comments: analysis.sourceDeal.commentsCount,
+      published: analysis.sourceDeal.postedDate ? Math.floor(new Date(analysis.sourceDeal.postedDate).getTime() / 1000) : null,
+      title: analysis.sourceDeal.title,
+      id: analysis.sourceDeal.setNumber,
       community: 'dealabs',
+      dealScore: analysis.dealScore,              // Include deal score
+      estimatedNetProfit: analysis.estimatedNetProfit, // Include estimated net profit
+      recommendation: analysis.recommendation,    // Include recommendation
     }));
 
     // Send the response
@@ -126,30 +131,40 @@ app.get('/deals/:id', async (request, response) => {
       return response.status(400).json({ error: 'Invalid deal ID' });
     }
 
-    const dealsCollection = db.collection('deals');
+    const analyzesCollection = db.collection('analyzes'); // Use the analyzes collection
 
     // Query the database with a valid ObjectId
-    const deal = await dealsCollection.findOne({ _id: new ObjectId(dealId) });
+    const analysis = await analyzesCollection.findOne({ _id: new ObjectId(dealId) });
 
-    // If no deal is found, return a 404
-    if (!deal) {
+    // If no analysis is found, return a 404
+    if (!analysis) {
       return response.status(404).json({ error: 'Deal not found' });
     }
 
-    // Format the response
+    // Format the response to include the full analysis data
     const formattedDeal = {
-      _id: deal._id.toString(),
-      link: deal.link,
-      retail: deal.retail || null,
-      price: deal.price,
-      discount: deal.discount || null,
-      temperature: deal.temperature,
-      photo: deal.imageUrl,
-      comments: deal.commentsCount,
-      published: deal.postedDate ? Math.floor(new Date(deal.postedDate).getTime() / 1000) : null,
-      title: deal.title,
-      id: deal.setNumber,
-      community: 'dealabs',
+      _id: analysis._id.toString(),
+      sourceDeal: {
+        setNumber: analysis.sourceDeal.setNumber,
+        title: analysis.sourceDeal.title,
+        price: analysis.sourceDeal.price,
+        temperature: analysis.sourceDeal.temperature,
+        commentsCount: analysis.sourceDeal.commentsCount,
+        link: analysis.sourceDeal.link,
+        imageUrl: analysis.sourceDeal.imageUrl,
+      },
+      dealScore: analysis.dealScore,
+      estimatedNetProfit: analysis.estimatedNetProfit,
+      recommendation: analysis.recommendation,
+      vintedStats: {
+        averageSellingPrice: analysis.averageSellingPrice,
+        medianSellingPrice: analysis.medianSellingPrice,
+        priceRange: `${analysis.lowerQuartilePrice}€ - ${analysis.upperQuartilePrice}€`,
+        priceStability: analysis.coefficientOfVariation,
+        averageCondition: analysis.averageCondition,
+        averageFavorites: analysis.averageFavorites,
+        listingsCount: analysis.newConditionListingsCount,
+      },
     };
 
     response.json(formattedDeal);
@@ -197,6 +212,54 @@ app.get('/sales/search', async (request, response) => {
     });
   } catch (error) {
     console.error('Error searching sales:', error.message);
+    response.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /analyze - Trigger profitability analysis for a given input (Dealabs link or set ID)
+app.post('/analyze', async (request, response) => {
+  try {
+    const { input } = request.body;
+    if (!input) {
+      return response.status(400).json({ error: 'Input is required' });
+    }
+
+    // Trigger the profitability analysis (this will scrape and store data in MongoDB)
+    const analysis = await analyzeProfitability(input);
+    if (!analysis) {
+      return response.status(404).json({ error: 'Analysis failed or no deal found' });
+    }
+
+    // Fetch the _id of the saved analysis
+    const analyzesCollection = db.collection('analyzes');
+    const savedAnalysis = await analyzesCollection.findOne({ setNumber: analysis.sourceDeal.setNumber });
+
+    // Format the response to match what the frontend expects
+    response.json({
+      _id: savedAnalysis._id.toString(), // Include the _id
+      sourceDeal: {
+        setNumber: analysis.sourceDeal.setNumber,
+        title: analysis.sourceDeal.title,
+        price: analysis.sourceDeal.price,
+        temperature: analysis.sourceDeal.temperature,
+        commentsCount: analysis.sourceDeal.commentsCount,
+        link: analysis.sourceDeal.link,
+      },
+      dealScore: analysis.dealScore,
+      estimatedNetProfit: analysis.estimatedNetProfit,
+      recommendation: analysis.recommendation,
+      vintedStats: {
+        averageSellingPrice: analysis.averageSellingPrice,
+        medianSellingPrice: analysis.medianSellingPrice,
+        priceRange: `${analysis.lowerQuartilePrice}€ - ${analysis.upperQuartilePrice}€`,
+        priceStability: analysis.coefficientOfVariation,
+        averageCondition: analysis.averageCondition,
+        averageFavorites: analysis.averageFavorites,
+        listingsCount: analysis.newConditionListingsCount,
+      },
+    });
+  } catch (error) {
+    console.error('Error in POST /analyze:', error.message);
     response.status(500).json({ error: 'Internal server error' });
   }
 });

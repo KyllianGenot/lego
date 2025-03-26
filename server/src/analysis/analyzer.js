@@ -32,10 +32,12 @@ async function analyzeProfitability(input) {
     const db = client.db(MONGODB_DB_NAME);
     const dealsCollection = db.collection('deals');
     const salesCollection = db.collection('sales');
+    const analyzesCollection = db.collection('analyzes'); // New collection for analysis results
 
     // Create unique indexes to prevent duplicates
     await dealsCollection.createIndex({ link: 1 }, { unique: true });
     await salesCollection.createIndex({ link: 1 }, { unique: true });
+    await analyzesCollection.createIndex({ setNumber: 1 }, { unique: true }); // Unique index on setNumber
 
     // Step 1: Process input and scrape Dealabs
     let dealabsDeals = [];
@@ -171,7 +173,19 @@ async function analyzeProfitability(input) {
     // Step 6: Perform profitability analysis
     const analysis = calculateProfitability(sourceDeal, relevantResults);
 
-    // Step 7: Save analysis to file
+    // Step 7: Save analysis to MongoDB 'analyzes' collection
+    if (analysis && analysis.sourceDeal && analysis.sourceDeal.setNumber) {
+      await analyzesCollection.updateOne(
+        { setNumber: analysis.sourceDeal.setNumber }, // Unique key based on setNumber
+        { $set: analysis },                          // Update with new data
+        { upsert: true }                             // Insert if not found
+      );
+      log(`✅ Analysis saved for set ${analysis.sourceDeal.setNumber} in MongoDB`);
+    } else {
+      log('⚠️ Could not save analysis to MongoDB: Missing set number');
+    }
+
+    // Step 8: Save analysis to file (optional, keeping this as is)
     try {
       await fs.mkdir(dataDir, { recursive: true });
       await fs.writeFile(`${dataDir}/profitability_analysis.json`, JSON.stringify(analysis, null, 2));
