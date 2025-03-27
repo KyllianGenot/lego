@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { analyzeDeal, getTopDeals } from '../api';
-import { Search, TrendingUp, Award, ArrowRight, Package } from 'lucide-react';
+import { Search, TrendingUp, Award, ArrowRight } from 'lucide-react';
+import Header from './Header';
+import Footer from './Footer';
 
 function Home() {
   const [input, setInput] = useState('');
   const [topDeals, setTopDeals] = useState({ topByDealScore: [], topByProfit: [] });
   const [loading, setLoading] = useState(false);
+  const [analyzeLoading, setAnalyzeLoading] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -19,6 +23,7 @@ function Home() {
         console.error('Error fetching top deals:', error);
       } finally {
         setLoading(false);
+        setInitialLoadComplete(true);
       }
     };
     fetchTopDeals();
@@ -28,7 +33,7 @@ function Home() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    setLoading(true);
+    setAnalyzeLoading(true);
     try {
       const analysis = await analyzeDeal(input);
       if (analysis && analysis._id) {
@@ -39,30 +44,14 @@ function Home() {
     } catch (error) {
       alert('Error analyzing deal: ' + error.message);
     } finally {
-      setLoading(false);
+      setAnalyzeLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0e1116] to-[#1a1d23] text-gray-200">
-      <div className="container mx-auto max-w-6xl px-6 py-12">
-        <header className="flex justify-between items-center mb-16">
-          <div className="flex items-center space-x-3">
-            <Package className="text-blue-400" size={32} />
-            <h1 className="text-4xl font-bold gradient-text">
-              LEGO Deal Analyzer
-            </h1>
-          </div>
-          <nav className="flex space-x-6">
-            <a href="#" className="text-gray-400 hover:text-white transition-colors text-sm font-medium">
-              About
-            </a>
-            <a href="#" className="text-gray-400 hover:text-white transition-colors text-sm font-medium">
-              Help
-            </a>
-          </nav>
-        </header>
-
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-[#0e1116] to-[#1a1d23] text-gray-200">
+      <Header />
+      <main className="flex-grow container mx-auto max-w-6xl px-6 py-12">
         <div className="text-center mb-20">
           <h2 className="text-6xl font-bold mb-6 leading-tight">
             Find the Best <span className="gradient-text">LEGO Deals</span>
@@ -79,16 +68,16 @@ function Home() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Enter LEGO set ID or Dealabs link"
                 className="w-full h-16 bg-[#1a1d23]/50 backdrop-blur border border-gray-700/50 rounded-2xl py-4 px-5 pl-14 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                disabled={loading}
+                disabled={analyzeLoading}
               />
               <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 text-gray-500" size={20} />
             </div>
             <button
               type="submit"
               className="mt-4 w-full h-14 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all flex items-center justify-center"
-              disabled={loading}
+              disabled={analyzeLoading}
             >
-              {loading ? (
+              {analyzeLoading ? (
                 <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent" />
               ) : (
                 'Analyze Deal'
@@ -111,7 +100,11 @@ function Home() {
                 </h2>
               </div>
               
-              {topDeals.topByDealScore.length === 0 ? (
+              {!initialLoadComplete ? (
+                <div className="flex justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-2 border-blue-500 border-t-transparent"></div>
+                </div>
+              ) : topDeals.topByDealScore.length === 0 ? (
                 <p className="text-gray-500">No deals available.</p>
               ) : (
                 <div className="space-y-4">
@@ -162,7 +155,11 @@ function Home() {
                 </h2>
               </div>
               
-              {topDeals.topByProfit.length === 0 ? (
+              {!initialLoadComplete ? (
+                <div className="flex justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-2 border-blue-500 border-t-transparent"></div>
+                </div>
+              ) : topDeals.topByProfit.length === 0 ? (
                 <p className="text-gray-500">No deals available.</p>
               ) : (
                 <div className="space-y-4">
@@ -192,8 +189,10 @@ function Home() {
                               {deal.sourceDeal?.price != null ? `${deal.sourceDeal.price.toFixed(2)}€` : 'N/A'}
                             </p>
                             <div className="flex items-center">
-                              <span className="text-green-500 font-bold mr-1">
-                                {deal.estimatedNetProfit != null ? `+${deal.estimatedNetProfit.toFixed(2)}€` : 'N/A'}
+                              <span className={`font-bold mr-1 ${deal.estimatedNetProfit != null ? (deal.estimatedNetProfit >= 0 ? "text-green-500" : "text-red-500") : "text-gray-500"}`}>
+                                {deal.estimatedNetProfit != null ? 
+                                  (deal.estimatedNetProfit >= 0 ? `+${deal.estimatedNetProfit.toFixed(2)}€` : `${deal.estimatedNetProfit.toFixed(2)}€`) 
+                                  : 'N/A'}
                               </span>
                               <ArrowRight className="ml-2 text-gray-500" size={16} />
                             </div>
@@ -207,7 +206,8 @@ function Home() {
             </div>
           </div>
         )}
-      </div>
+      </main>
+      <Footer />
     </div>
   );
 }

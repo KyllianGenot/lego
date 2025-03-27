@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8092'; // Adjust if your backend URL differs
+const API_URL = 'http://localhost:8092'; // Matches server PORT
 
 /** Analyze a deal by calling the backend's /analyze endpoint */
 export const analyzeDeal = async (input) => {
@@ -8,7 +8,7 @@ export const analyzeDeal = async (input) => {
     const response = await axios.post(`${API_URL}/analyze`, { input });
     return response.data;
   } catch (error) {
-    console.error('Error analyzing deal:', error);
+    console.error('Error analyzing deal:', error.response ? error.response.data : error.message);
     throw error;
   }
 };
@@ -20,7 +20,7 @@ export const getAllDeals = async () => {
     console.log('Raw deals from /deals/search:', response.data.results); // Debug log
     return response.data.results;
   } catch (error) {
-    console.error('Error fetching deals:', error);
+    console.error('Error fetching deals:', error.response ? error.response.data : error.message);
     return [];
   }
 };
@@ -33,7 +33,7 @@ export const getSalesForSet = async (setId) => {
     });
     return response.data.results;
   } catch (error) {
-    console.error(`Error fetching sales for set ${setId}:`, error);
+    console.error(`Error fetching sales for set ${setId}:`, error.response ? error.response.data : error.message);
     return [];
   }
 };
@@ -48,9 +48,9 @@ export const getTopDeals = async () => {
       deal.dealScore != null && 
       deal.estimatedNetProfit != null && 
       deal.recommendation != null &&
-      deal.sourceDeal && // Ensure sourceDeal exists
-      deal.sourceDeal.title && // Ensure title exists
-      deal.sourceDeal.price != null // Ensure price exists
+      deal.sourceDeal && 
+      deal.sourceDeal.title && 
+      deal.sourceDeal.price != null
     );
 
     console.log('Valid deals after filtering:', validDeals); // Debug log
@@ -67,7 +67,7 @@ export const getTopDeals = async () => {
 
     return { topByDealScore, topByProfit };
   } catch (error) {
-    console.error('Error fetching top deals:', error);
+    console.error('Error fetching top deals:', error.response ? error.response.data : error.message);
     return { topByDealScore: [], topByProfit: [] };
   }
 };
@@ -76,9 +76,10 @@ export const getTopDeals = async () => {
 export const getDealAnalysis = async (id) => {
   try {
     const response = await axios.get(`${API_URL}/deals/${id}`);
+    console.log(`Fetched analysis for id ${id}:`, response.data); // Debug log
     return response.data;
   } catch (error) {
-    console.error(`Error fetching analysis for id ${id}:`, error);
+    console.error(`Error fetching analysis for id ${id}:`, error.response ? error.response.data : error.message);
     throw error;
   }
 };
