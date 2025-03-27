@@ -1,36 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getDealAnalysis } from '../api';
 
 function DealDetails() {
-  const { id } = useParams(); // Renamed from setId to id, representing _id
-  const location = useLocation();
-  const [analysis, setAnalysis] = useState(location.state?.analysis || location.state?.deal || null);
-  const [loading, setLoading] = useState(!analysis);
+  const { id } = useParams(); // Represents the _id (e.g., "67e50c43faea7eff253552c1")
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!analysis) {
-      const fetchAnalysis = async () => {
-        try {
-          const data = await getDealAnalysis(id);
-          console.log('Fetched analysis in DealDetails:', data); // Debug log
-          if (data && data.sourceDeal) {
-            setAnalysis(data);
-          } else {
-            setError('Invalid analysis data received');
-          }
-          setLoading(false);
-        } catch (err) {
-          setError('Failed to load deal analysis');
-          setLoading(false);
+    const fetchAnalysis = async () => {
+      setLoading(true);
+      try {
+        const data = await getDealAnalysis(id);
+        console.log('Fetched analysis in DealDetails:', data);
+        if (data && data.sourceDeal) {
+          setAnalysis(data);
+        } else {
+          setError('Invalid analysis data received: missing sourceDeal');
         }
-      };
-      fetchAnalysis();
-    } else {
-      console.log('Analysis from state in DealDetails:', analysis); // Debug log
-    }
-  }, [id, analysis]);
+      } catch (err) {
+        console.error('Error fetching deal analysis:', err);
+        setError(`Failed to load deal analysis: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAnalysis();
+  }, [id]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-600">Loading...</div>;
   if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;

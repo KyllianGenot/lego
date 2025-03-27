@@ -13,8 +13,8 @@ function Home() {
       setLoading(true);
       try {
         const data = await getTopDeals();
-        console.log('Fetched top deals:', data); // Debug the data
-        setTopDeals(data); // Data is already { topByDealScore, topByProfit }
+        console.log('Fetched top deals in Home.js:', data);
+        setTopDeals(data);
       } catch (error) {
         console.error('Error fetching top deals:', error);
         alert('Failed to load top deals');
@@ -81,10 +81,14 @@ function Home() {
               ) : (
                 topDeals.topByDealScore.map((deal, index) => (
                   <div key={index} className="bg-white p-4 rounded-lg shadow-lg mb-4 hover:shadow-xl transition-shadow">
-                    <p className="font-bold text-gray-800">{deal.title} (Set: {deal.id})</p>
-                    <p className="text-gray-600">Price: {deal.price ? deal.price.toFixed(2) : 'N/A'}€</p>
-                    <p className="text-gray-600">Deal Score: {deal.dealScore}/100</p>
-                    <p className="text-gray-600">Recommendation: {deal.recommendation}</p>
+                    <p className="font-bold text-gray-800">
+                      {deal.sourceDeal?.title || 'Unknown Title'} (Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'})
+                    </p>
+                    <p className="text-gray-600">
+                      Price: {deal.sourceDeal?.price != null ? deal.sourceDeal.price.toFixed(2) : 'N/A'}€
+                    </p>
+                    <p className="text-gray-600">Deal Score: {deal.dealScore || 'N/A'}/100</p>
+                    <p className="text-gray-600">Recommendation: {deal.recommendation || 'N/A'}</p>
                     <button
                       onClick={() => navigate(`/deal/${deal._id}`, { state: { analysis: deal } })}
                       className="mt-2 text-indigo-500 hover:underline"
@@ -104,10 +108,16 @@ function Home() {
               ) : (
                 topDeals.topByProfit.map((deal, index) => (
                   <div key={index} className="bg-white p-4 rounded-lg shadow-lg mb-4 hover:shadow-xl transition-shadow">
-                    <p className="font-bold text-gray-800">{deal.title} (Set: {deal.id})</p>
-                    <p className="text-gray-600">Price: {deal.price ? deal.price.toFixed(2) : 'N/A'}€</p>
-                    <p className="text-gray-600">Estimated Net Profit: {deal.estimatedNetProfit ? deal.estimatedNetProfit.toFixed(2) : 'N/A'}€</p>
-                    <p className="text-gray-600">Recommendation: {deal.recommendation}</p>
+                    <p className="font-bold text-gray-800">
+                      {deal.sourceDeal?.title || 'Unknown Title'} (Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'})
+                    </p>
+                    <p className="text-gray-600">
+                      Price: {deal.sourceDeal?.price != null ? deal.sourceDeal.price.toFixed(2) : 'N/A'}€
+                    </p>
+                    <p className="text-gray-600">
+                      Estimated Net Profit: {deal.estimatedNetProfit != null ? deal.estimatedNetProfit.toFixed(2) : 'N/A'}€
+                    </p>
+                    <p className="text-gray-600">Recommendation: {deal.recommendation || 'N/A'}</p>
                     <button
                       onClick={() => navigate(`/deal/${deal._id}`, { state: { analysis: deal } })}
                       className="mt-2 text-indigo-500 hover:underline"

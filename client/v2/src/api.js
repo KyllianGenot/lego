@@ -17,6 +17,7 @@ export const analyzeDeal = async (input) => {
 export const getAllDeals = async () => {
   try {
     const response = await axios.get(`${API_URL}/deals/search`, { params: { limit: 1000 } });
+    console.log('Raw deals from /deals/search:', response.data.results); // Debug log
     return response.data.results;
   } catch (error) {
     console.error('Error fetching deals:', error);
@@ -40,15 +41,19 @@ export const getSalesForSet = async (setId) => {
 /** Get top 5 deals by deal score and profit */
 export const getTopDeals = async () => {
   try {
-    // Fetch deals with precomputed analysis from the backend
     const deals = await getAllDeals();
     
     // Filter out any deals with missing required fields
     const validDeals = deals.filter(deal => 
       deal.dealScore != null && 
       deal.estimatedNetProfit != null && 
-      deal.recommendation != null
+      deal.recommendation != null &&
+      deal.sourceDeal && // Ensure sourceDeal exists
+      deal.sourceDeal.title && // Ensure title exists
+      deal.sourceDeal.price != null // Ensure price exists
     );
+
+    console.log('Valid deals after filtering:', validDeals); // Debug log
 
     // Sort for top by deal score
     const topByDealScore = [...validDeals]
