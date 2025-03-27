@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { analyzeDeal, getTopDeals } from '../api';
+import { Search, TrendingUp, Award, ArrowRight, Package } from 'lucide-react';
 
 function Home() {
   const [input, setInput] = useState('');
@@ -13,11 +14,9 @@ function Home() {
       setLoading(true);
       try {
         const data = await getTopDeals();
-        console.log('Fetched top deals in Home.js:', data);
         setTopDeals(data);
       } catch (error) {
         console.error('Error fetching top deals:', error);
-        alert('Failed to load top deals');
       } finally {
         setLoading(false);
       }
@@ -33,7 +32,7 @@ function Home() {
     try {
       const analysis = await analyzeDeal(input);
       if (analysis && analysis._id) {
-        navigate(`/deal/${analysis._id}`, { state: { analysis } });
+        navigate(`/deal/${analysis._id}`);
       } else {
         alert('No analysis found for the given input');
       }
@@ -45,87 +44,165 @@ function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 p-4">
-      <div className="container mx-auto">
-        <h1 className="text-5xl font-bold mb-8 text-center bg-gradient-to-r from-indigo-600 to-pink-500 bg-clip-text text-transparent">
-          LEGO Deal Analyzer
-        </h1>
-        <form onSubmit={handleSubmit} className="mb-12 max-w-lg mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Enter LEGO set ID or Dealabs link"
-            className="border-2 border-indigo-200 p-3 w-full rounded-lg shadow-md focus:outline-none focus:border-indigo-500"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            className="mt-2 bg-gradient-to-r from-indigo-500 to-pink-500 text-white p-3 rounded-lg w-full shadow-md hover:scale-105 transition-transform"
-            disabled={loading}
-          >
-            {loading ? 'Analyzing...' : 'Analyze'}
-          </button>
-        </form>
+    <div className="min-h-screen bg-gradient-to-b from-[#0e1116] to-[#1a1d23] text-gray-200">
+      <div className="container mx-auto max-w-6xl px-6 py-12">
+        <header className="flex justify-between items-center mb-16">
+          <div className="flex items-center space-x-3">
+            <Package className="text-blue-400" size={32} />
+            <h1 className="text-4xl font-bold gradient-text">
+              LEGO Deal Analyzer
+            </h1>
+          </div>
+          <nav className="flex space-x-6">
+            <a href="#" className="text-gray-400 hover:text-white transition-colors text-sm font-medium">
+              About
+            </a>
+            <a href="#" className="text-gray-400 hover:text-white transition-colors text-sm font-medium">
+              Help
+            </a>
+          </nav>
+        </header>
+
+        <div className="text-center mb-20">
+          <h2 className="text-6xl font-bold mb-6 leading-tight">
+            Find the Best <span className="gradient-text">LEGO Deals</span>
+          </h2>
+          <p className="text-gray-400 text-xl mb-12 max-w-2xl mx-auto">
+            Enter a LEGO set ID or Dealabs link to analyze profitability and market trends
+          </p>
+          
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+            <div className="relative">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Enter LEGO set ID or Dealabs link"
+                className="w-full h-16 bg-[#1a1d23]/50 backdrop-blur border border-gray-700/50 rounded-2xl py-4 px-5 pl-14 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                disabled={loading}
+              />
+              <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 text-gray-500" size={20} />
+            </div>
+            <button
+              type="submit"
+              className="mt-4 w-full h-14 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all flex items-center justify-center"
+              disabled={loading}
+            >
+              {loading ? (
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent" />
+              ) : (
+                'Analyze Deal'
+              )}
+            </button>
+          </form>
+        </div>
 
         {loading ? (
-          <div className="text-center text-gray-600">Loading top deals...</div>
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-2 border-blue-500 border-t-transparent"></div>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-              <h2 className="text-3xl font-bold mb-4 bg-gradient-to-r from-indigo-600 to-pink-500 bg-clip-text text-transparent">
-                Top 5 by Deal Score
-              </h2>
+            <div className="glass-card rounded-2xl p-8 border border-gray-800/50">
+              <div className="flex items-center mb-8">
+                <Award className="text-yellow-500 mr-3" size={28} />
+                <h2 className="text-2xl font-bold gradient-text">
+                  Top Deals by Score
+                </h2>
+              </div>
+              
               {topDeals.topByDealScore.length === 0 ? (
-                <p className="text-gray-600">No deals available.</p>
+                <p className="text-gray-500">No deals available.</p>
               ) : (
-                topDeals.topByDealScore.map((deal, index) => (
-                  <div key={index} className="bg-white p-4 rounded-lg shadow-lg mb-4 hover:shadow-xl transition-shadow">
-                    <p className="font-bold text-gray-800">
-                      {deal.sourceDeal?.title || 'Unknown Title'} (Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'})
-                    </p>
-                    <p className="text-gray-600">
-                      Price: {deal.sourceDeal?.price != null ? deal.sourceDeal.price.toFixed(2) : 'N/A'}€
-                    </p>
-                    <p className="text-gray-600">Deal Score: {deal.dealScore || 'N/A'}/100</p>
-                    <p className="text-gray-600">Recommendation: {deal.recommendation || 'N/A'}</p>
-                    <button
-                      onClick={() => navigate(`/deal/${deal._id}`, { state: { analysis: deal } })}
-                      className="mt-2 text-indigo-500 hover:underline"
+                <div className="space-y-4">
+                  {topDeals.topByDealScore.map((deal, index) => (
+                    <div 
+                      key={index} 
+                      className="deal-card bg-[#252a33]/50 backdrop-blur p-4 rounded-xl hover:bg-[#2a303a]/50 cursor-pointer border border-gray-700/30"
+                      onClick={() => navigate(`/deal/${deal._id}`)}
                     >
-                      View Details
-                    </button>
-                  </div>
-                ))
+                      <div className="flex items-center space-x-4">
+                        {deal.sourceDeal?.imageUrl && (
+                          <img 
+                            src={deal.sourceDeal.imageUrl} 
+                            alt={deal.sourceDeal?.title} 
+                            className="w-20 h-20 object-cover rounded-lg"
+                          />
+                        )}
+                        <div className="flex-1">
+                          <h3 className="font-bold text-white mb-2 line-clamp-1">
+                            {deal.sourceDeal?.title || 'Unknown Title'} 
+                          </h3>
+                          <p className="text-sm text-gray-400 mb-2">
+                            Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'}
+                          </p>
+                          <div className="flex justify-between items-center">
+                            <p className="text-blue-400 font-medium">
+                              {deal.sourceDeal?.price != null ? `${deal.sourceDeal.price.toFixed(2)}€` : 'N/A'}
+                            </p>
+                            <div className="flex items-center">
+                              <span className="text-yellow-500 font-bold mr-1">{deal.dealScore || 'N/A'}</span>
+                              <span className="text-gray-500">/100</span>
+                              <ArrowRight className="ml-2 text-gray-500" size={16} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            <div>
-              <h2 className="text-3xl font-bold mb-4 bg-gradient-to-r from-indigo-600 to-pink-500 bg-clip-text text-transparent">
-                Top 5 by Profit
-              </h2>
+            
+            <div className="glass-card rounded-2xl p-8 border border-gray-800/50">
+              <div className="flex items-center mb-8">
+                <TrendingUp className="text-green-500 mr-3" size={28} />
+                <h2 className="text-2xl font-bold gradient-text">
+                  Top Deals by Profit
+                </h2>
+              </div>
+              
               {topDeals.topByProfit.length === 0 ? (
-                <p className="text-gray-600">No deals available.</p>
+                <p className="text-gray-500">No deals available.</p>
               ) : (
-                topDeals.topByProfit.map((deal, index) => (
-                  <div key={index} className="bg-white p-4 rounded-lg shadow-lg mb-4 hover:shadow-xl transition-shadow">
-                    <p className="font-bold text-gray-800">
-                      {deal.sourceDeal?.title || 'Unknown Title'} (Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'})
-                    </p>
-                    <p className="text-gray-600">
-                      Price: {deal.sourceDeal?.price != null ? deal.sourceDeal.price.toFixed(2) : 'N/A'}€
-                    </p>
-                    <p className="text-gray-600">
-                      Estimated Net Profit: {deal.estimatedNetProfit != null ? deal.estimatedNetProfit.toFixed(2) : 'N/A'}€
-                    </p>
-                    <p className="text-gray-600">Recommendation: {deal.recommendation || 'N/A'}</p>
-                    <button
-                      onClick={() => navigate(`/deal/${deal._id}`, { state: { analysis: deal } })}
-                      className="mt-2 text-indigo-500 hover:underline"
+                <div className="space-y-4">
+                  {topDeals.topByProfit.map((deal, index) => (
+                    <div 
+                      key={index} 
+                      className="deal-card bg-[#252a33]/50 backdrop-blur p-4 rounded-xl hover:bg-[#2a303a]/50 cursor-pointer border border-gray-700/30"
+                      onClick={() => navigate(`/deal/${deal._id}`)}
                     >
-                      View Details
-                    </button>
-                  </div>
-                ))
+                      <div className="flex items-center space-x-4">
+                        {deal.sourceDeal?.imageUrl && (
+                          <img 
+                            src={deal.sourceDeal.imageUrl} 
+                            alt={deal.sourceDeal?.title} 
+                            className="w-20 h-20 object-cover rounded-lg"
+                          />
+                        )}
+                        <div className="flex-1">
+                          <h3 className="font-bold text-white mb-2 line-clamp-1">
+                            {deal.sourceDeal?.title || 'Unknown Title'} 
+                          </h3>
+                          <p className="text-sm text-gray-400 mb-2">
+                            Set: {deal.sourceDeal?.setNumber || deal.id || 'N/A'}
+                          </p>
+                          <div className="flex justify-between items-center">
+                            <p className="text-blue-400 font-medium">
+                              {deal.sourceDeal?.price != null ? `${deal.sourceDeal.price.toFixed(2)}€` : 'N/A'}
+                            </p>
+                            <div className="flex items-center">
+                              <span className="text-green-500 font-bold mr-1">
+                                {deal.estimatedNetProfit != null ? `+${deal.estimatedNetProfit.toFixed(2)}€` : 'N/A'}
+                              </span>
+                              <ArrowRight className="ml-2 text-gray-500" size={16} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

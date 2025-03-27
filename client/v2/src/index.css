@@ -2,7 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-space: 'Space Grotesk', sans-serif;
+  --font-inter: 'Inter', sans-serif;
+}
+
 body {
-  margin: 0;
-  font-family: 'Saira', sans-serif;
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-space);
+}
+
+.glass-card {
+  background: rgba(26, 29, 35, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.deal-card {
+  transition: all 0.3s ease;
+}
+
+.deal-card:hover {
+  transform: translateY(-2px);
+}
+
+.gradient-text {
+  @apply bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent;
 }
