@@ -2,6 +2,7 @@ const cors = require('cors');
 const express = require('express');
 const helmet = require('helmet');
 const { MongoClient, ObjectId } = require('mongodb');
+const path = require('path'); // Added for static file serving
 require('dotenv').config();
 
 const { analyzeProfitability } = require('./src/exec/executeAnalysis');
@@ -85,7 +86,6 @@ app.get('/deals/search', async (request, response) => {
     const analyzes = await analyzesCollection.find(query).sort(sortCriteria).limit(limit).toArray();
     const total = await analyzesCollection.countDocuments(query);
 
-    // Format the results to include nested sourceDeal
     const formattedResults = analyzes.map(analysis => ({
       _id: analysis._id.toString(),
       sourceDeal: {
@@ -122,13 +122,13 @@ app.get('/deals/search', async (request, response) => {
 app.get('/deals/:id', async (request, response) => {
   try {
     const dealId = request.params.id;
+    console.log(`Fetching deal with id: ${dealId}`); // Debug log
 
     if (!ObjectId.isValid(dealId)) {
       return response.status(400).json({ error: 'Invalid deal ID' });
     }
 
     const analyzesCollection = db.collection('analyzes');
-
     const analysis = await analyzesCollection.findOne({ _id: new ObjectId(dealId) });
 
     if (!analysis) {
@@ -149,6 +149,7 @@ app.get('/deals/:id', async (request, response) => {
       dealScore: analysis.dealScore,
       estimatedNetProfit: analysis.estimatedNetProfit,
       recommendation: analysis.recommendation,
+      scoreBreakdown: analysis.scoreBreakdown, // Add scoreBreakdown here
       vintedStats: {
         averageSellingPrice: analysis.averageSellingPrice,
         medianSellingPrice: analysis.medianSellingPrice,
@@ -204,7 +205,7 @@ app.get('/sales/search', async (request, response) => {
   }
 });
 
-// POST /analyze - Trigger profitability analysis for a given input (Dealabs link or set ID)
+// POST /analyze - Trigger profitability analysis for a given input
 app.post('/analyze', async (request, response) => {
   try {
     const { input } = request.body;
@@ -247,4 +248,11 @@ app.post('/analyze', async (request, response) => {
     console.error('Error in POST /analyze:', error.message);
     response.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Serve static files and catch-all route (for React app) - MUST BE LAST
+app.use(express.static(path.join(__dirname, 'build')));
+app.get('*', (request, response) => {
+  console.log(`Catch-all route hit for: ${request.path}`); // Debug log
+  response.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
