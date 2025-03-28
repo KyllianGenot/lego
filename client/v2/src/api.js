@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8092'; // Matches server PORT
+const API_URL = 'https://lego-backend-pp5v.onrender.com';
 
 /** Analyze a deal by calling the backend's /analyze endpoint */
 export const analyzeDeal = async (input) => {
