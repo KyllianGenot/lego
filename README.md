@@ -76,34 +76,46 @@ With [inception](https://github.com/92bondstreet/inception?tab=readme-ov-file#%E
 
 ### Local Testing Setup
 
-1. **Prerequisites**:
-   - Node.js installed
-   - MongoDB configured
-   - Basic understanding of web development
-
-2. **Update API Configuration**:
-   In `client/v2/src/api.js`, modify the API URL:
-   ```javascript
-   // From
-   const API_URL = 'https://lego-backend-pp5v.onrender.com';
-   
-   // To
-   const API_URL = 'http://localhost:8092';
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/KyllianGenot/lego.git
+   cd lego
    ```
 
-3. **Start Backend Server**:
+2. **Install Server Dependencies**
+   ```bash
+   cd server
+   npm install
+   cd ..
+   ```
+
+3. **Install Client Dependencies**
+   ```bash
+   cd client/v2
+   npm install
+   cd ../..
+   ```
+
+4. **Configure Environment Variables**
+   ```bash
+   # Copy the example environment file (the .env.example already contains the correct informations for you to be able to try)
+   cp .env.example .env
+   ```
+
+5. **Start the Backend Server**
+   Open a new terminal in the project root:
    ```bash
    node server/api.js
    ```
 
-4. **Start Frontend**:
+6. **Start the Frontend**
+   Open another terminal in the project root:
    ```bash
-   # In another terminal
    cd client/v2
    npm start
    ```
 
-5. **Try the analysis locally**:
+7. **Try the analysis locally**:
    - Open the local application
    - In the search field, enter either:
      * A Dealabs.com link (e.g., `https://www.dealabs.com/bons-plans/lego-fortnite-banane-pelee-3027895`)
