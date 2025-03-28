@@ -21,7 +21,7 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {String|null} Lego set number or null if not found
  */
 const extractLegoSetNumber = (text, url = '') => {
-  // Try to find a number in parentheses (common format for set numbers)
+  // First, try to find a number in parentheses (common format for set numbers)
   const parenthesesMatch = text.match(/\(\d{4,6}\)/);
   if (parenthesesMatch) {
     const setNumber = parenthesesMatch[0].replace(/[\(\)]/g, '');
@@ -30,17 +30,19 @@ const extractLegoSetNumber = (text, url = '') => {
     }
   }
 
-  // Look for a standalone 4-6 digit number in the title
+  // If not found in parentheses, look for a standalone 4-6 digit number in the title
   const titleMatches = text.match(/\b\d{4,6}\b/g);
   if (titleMatches) {
+    // Filter out numbers that might be piece counts (e.g., 2228) by checking context
     for (const match of titleMatches) {
+      // Skip if the number is followed by "pièces" (indicating piece count)
       if (!text.toLowerCase().includes(`${match} pièces`)) {
         return match;
       }
     }
   }
 
-  // Try to extract from the URL
+  // Finally, try to extract from the URL
   const urlMatches = url.match(/\b\d{4,6}\b/g);
   if (urlMatches) {
     return urlMatches[0];
@@ -52,7 +54,7 @@ const extractLegoSetNumber = (text, url = '') => {
 /**
  * Clean up price data without rounding
  * @param {String} priceText - Price text to clean
- * @returns {Number|null} Cleaned price or null if invalid
+ * @returns {Number|null} Cleaned price or null
  */
 const cleanPrice = (priceText) => {
   if (!priceText) return null;
@@ -67,7 +69,7 @@ const cleanPrice = (priceText) => {
 };
 
 /**
- * Parse relative time like "Publié il y a 3 h"
+ * Parse relative time like "Posté il y a 1 j" or "Publié il y a 3 h"
  * @param {String} timeText - Time text to parse
  * @returns {Date|null} Approximated date or null if parsing fails
  */
@@ -110,7 +112,8 @@ const parseSearchResults = (data) => {
       threadItems.forEach(item => {
         const threadIdMatch = item.url?.match(/\/(\d+)$/);
         if (threadIdMatch && item.datePublished) {
-          threadsData[threadIdMatch[1]] = new Date(item.datePublished);
+          const threadId = threadIdMatch[1];
+          threadsData[threadId] = new Date(item.datePublished);
         }
       });
     } catch (e) {
@@ -129,8 +132,8 @@ const parseSearchResults = (data) => {
       const setNumber = extractLegoSetNumber(title, link);
 
       const priceElement = $(element).find('.thread-price');
-      const priceText = priceElement.length ? priceElement.text().trim() : '';
-      const price = cleanPrice(priceText);
+      let priceText = priceElement.length ? priceElement.text().trim() : '';
+      let price = cleanPrice(priceText);
 
       if (!price) return undefined;
 
@@ -145,7 +148,10 @@ const parseSearchResults = (data) => {
       } else {
         const postedTimeElement = $(element).find('.chip--type-default .size--all-s');
         const timestampText = postedTimeElement.text().trim() || '';
-        postedDate = parseRelativeTime(timestampText) || null;
+        const approxDate = parseRelativeTime(timestampText);
+        if (approxDate) {
+          postedDate = approxDate;
+        }
       }
 
       const shippingElement = $(element).find('.icon--truck').parent().find('.overflow--wrap-off');
@@ -154,7 +160,7 @@ const parseSearchResults = (data) => {
       if (!freeShipping && shippingText) {
         const shippingCost = cleanPrice(shippingText);
         if (shippingCost) {
-          price += shippingCost;
+          price += shippingCost; // Add shipping cost to total price
         }
       }
 
@@ -202,24 +208,25 @@ const parseSearchResults = (data) => {
 const parseProductPage = (data, url) => {
   const $ = cheerio.load(data);
 
-  const titleElement = $('.thread-title span').first();
-  const title = titleElement.text().trim() || $('h1').text().trim() || $('title').text().trim();
+  const titleElement = $('.thread-title span') || $('h1');
+  const title = titleElement.text().trim() || $('title').text().trim();
 
   if (!title.toLowerCase().includes('lego')) return [];
 
   const setNumber = extractLegoSetNumber(title, url);
 
-  const priceElement = $('.threadItemCard-price, .thread-price').first();
-  const priceText = priceElement.text().trim();
+  const priceElement = $('.thread-price, .threadItemCard-price');
+  let priceText = priceElement.text().trim();
   let price = cleanPrice(priceText);
 
-  const temperatureElement = $('.cept-vote-temp').first();
+  const temperatureElement = $('.cept-vote-temp');
   const temperatureText = temperatureElement.text().trim();
   const temperature = temperatureText ? parseInt(temperatureText.replace('°', '')) : 0;
 
-  let postedDate = null;
-  const postedTimeElement = $('.size--all-s.color--text-TranslucentSecondary[title]').first();
+  const postedTimeElement = $('.size--all-s.color--text-TranslucentSecondary[title]');
   const timestampText = postedTimeElement.attr('title') || '';
+  let postedDate = null;
+
   if (timestampText) {
     const months = {
       'janvier': 0, 'février': 1, 'mars': 2, 'avril': 3, 'mai': 4, 'juin': 5,
@@ -227,13 +234,17 @@ const parseProductPage = (data, url) => {
     };
     const match = timestampText.match(/(\d+)\s*(\w+)\s*(\d+),\s*(\d+):(\d+):(\d+)/);
     if (match) {
-      const [_, day, monthStr, year, hours, minutes, seconds] = match;
-      const month = months[monthStr.toLowerCase()];
-      postedDate = new Date(Date.UTC(parseInt(year), month, parseInt(day), parseInt(hours), parseInt(minutes), parseInt(seconds)));
+      const day = parseInt(match[1]);
+      const month = months[match[2].toLowerCase()];
+      const year = parseInt(match[3]);
+      const hours = parseInt(match[4]);
+      const minutes = parseInt(match[5]);
+      const seconds = parseInt(match[6]);
+      postedDate = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
     }
   }
 
-  const shippingElement = $('.icon--truck').parent().find('.overflow--wrap-off').first();
+  const shippingElement = $('.icon--truck').parent().find('.overflow--wrap-off');
   const shippingText = shippingElement.text().trim();
   const freeShipping = shippingText.toLowerCase().includes('gratuit');
   if (!freeShipping && shippingText) {
@@ -243,8 +254,8 @@ const parseProductPage = (data, url) => {
     }
   }
 
-  const commentsElement = $('h2.flex--inline.boxAlign-ai--all-c span.size--all-l, h2.flex--inline.boxAlign-ai--all-c span.size--fromW3-xl').first();
-  const commentsText = commentsElement.text().trim();
+  const commentsElement = $('h2.flex--inline.boxAlign-ai--all-c span.size--all-l, h2.flex--inline.boxAlign-ai--all-c span.size--fromW3-xl');
+  const commentsText = commentsElement.first().text().trim();
   const commentsCountMatch = commentsText.match(/(\d+)\s*commentaires/);
   let commentsCount = commentsCountMatch ? parseInt(commentsCountMatch[1]) : 0;
 
@@ -261,18 +272,19 @@ const parseProductPage = (data, url) => {
           }
         }
       } catch (e) {
-        console.warn('Failed to parse JSON-LD for comments:', e.message);
+        console.warn('Failed to parse JSON-LD:', e.message);
       }
     }
   }
 
-  const imageElement = $('.threadItemCard-img picture').first();
+  const imageElement = $('.thread-image, .carousel-thumbnail-img, .threadItemCard-img picture');
   let imageUrl = '';
-  const sourceElement = imageElement.find('source[media="(min-width: 768px)"]').first();
+  const sourceElement = imageElement.find('source[media="(min-width: 768px)"]');
   if (sourceElement.length) {
     imageUrl = sourceElement.attr('srcset') || '';
   } else {
-    imageUrl = imageElement.find('img').first().attr('src') || '';
+    const imgElement = imageElement.find('img').first();
+    imageUrl = imgElement.attr('src') || '';
   }
 
   return [{
@@ -307,23 +319,32 @@ const saveDealsToFile = async (newDeals, filePath, isProductPage) => {
       console.log(`Creating new deals file at ${filePath}`);
     }
 
-    const existingDealsMap = new Map(existingDeals.map(deal => [deal.link, deal]));
+    const existingDealsMap = new Map();
+    existingDeals.forEach(deal => {
+      if (deal.link) {
+        existingDealsMap.set(deal.link, deal);
+      }
+    });
 
     newDeals.forEach(newDeal => {
       const key = newDeal.link;
       if (!key) return;
 
       if (existingDealsMap.has(key)) {
-        const existingDeal = existingDealsMap.get(key);
-        if (isProductPage) {
-          Object.assign(existingDeal, newDeal);
-        } else {
-          existingDeal.temperature = newDeal.temperature;
-          existingDeal.commentsCount = newDeal.commentsCount;
+        const existingIndex = existingDeals.findIndex(d => d.link === newDeal.link);
+        if (existingIndex !== -1) {
+          if (isProductPage) {
+            existingDeals[existingIndex] = { ...newDeal };
+          } else {
+            existingDeals[existingIndex] = {
+              ...existingDeals[existingIndex],
+              temperature: newDeal.temperature,
+              commentsCount: newDeal.commentsCount,
+            };
+          }
         }
       } else {
         existingDeals.push(newDeal);
-        existingDealsMap.set(key, newDeal);
       }
     });
 
@@ -348,11 +369,13 @@ module.exports.scrape = async (url) => {
     try {
       const browser = await puppeteer.launch({
         headless: true,
+        // No executablePath specified; let Puppeteer use its bundled Chromium
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-dev-shm-usage', // Use disk instead of shared memory
         ],
       });
 
@@ -366,7 +389,7 @@ module.exports.scrape = async (url) => {
         window.chrome = { runtime: {} };
       });
 
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 120000 });
       await delay(5000);
 
       try {
@@ -404,11 +427,13 @@ module.exports.scrape = async (url) => {
       }
     } catch (e) {
       attempt++;
-      console.error(`❌ Attempt ${attempt} failed for ${url}: ${e.message}`);
+      console.error(`❌ Attempt ${attempt} failed for ${url}:`, e.message);
+
       if (attempt === maxRetries) {
         console.error(`❌ All ${maxRetries} attempts failed for ${url}`);
         return [];
       }
+
       await delay(2000 * attempt);
     }
   }
