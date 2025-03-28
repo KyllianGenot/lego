@@ -102,20 +102,29 @@ With [inception](https://github.com/92bondstreet/inception?tab=readme-ov-file#%E
    cp .env.example .env
    ```
 
-5. **Start the Frontend**
+5. **Update API Configuration**:
+   In `client/v2/src/api.js`, modify the API URL:
+   ```javascript
+   // From
+   const API_URL = 'https://lego-backend-pp5v.onrender.com';
+   
+   // To
+   const API_URL = 'http://localhost:8092';
+
+6. **Start the Frontend**
    Open another terminal in the project root:
    ```bash
    cd client/v2
    npm start
    ```
 
-6. **Start the Backend Server**
+7. **Start the Backend Server**
    Open a new terminal in the project root:
    ```bash
    node server/api.js
    ```
 
-7. **Try the analysis locally**:
+8. **Try the analysis locally**:
    - Open the local application
    - Refresh the page
    - In the search field, enter either:
