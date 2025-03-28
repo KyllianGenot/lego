@@ -21,45 +21,27 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {String|null} Lego set number or null if not found
  */
 const extractLegoSetNumber = (text, url = '') => {
-  // Check for direct set number mention (e.g., "LEGO 40460", "Set 40460")
   const directMatch = text.match(/(?:LEGO|Set|Ref|Référence|N°)\s*(\d{4,6})/i);
-  if (directMatch) {
-    return directMatch[1];
-  }
+  if (directMatch) return directMatch[1];
 
-  // Try to find a number in parentheses (common format for set numbers)
   const parenthesesMatch = text.match(/\(\d{4,6}\)/);
   if (parenthesesMatch) {
     const setNumber = parenthesesMatch[0].replace(/[\(\)]/g, '');
-    if (setNumber.length >= 4 && setNumber.length <= 6) {
-      return setNumber;
-    }
+    if (setNumber.length >= 4 && setNumber.length <= 6) return setNumber;
   }
 
-  // Try to find a standalone 4-6 digit number that could be a set number
   const numberMatches = text.match(/\b\d{4,6}\b/g);
   if (numberMatches) {
-    // Filter out numbers that might be piece counts or other irrelevant numbers
     for (const match of numberMatches) {
-      if (!text.toLowerCase().includes(`${match} pièces`)) {
-        return match;
-      }
+      if (!text.toLowerCase().includes(`${match} pièces`)) return match;
     }
   }
 
-  // Try to extract from URL
   if (url) {
-    // Look for set numbers in URL segments (e.g., "40460-lego-rose")
     const urlSetMatch = url.match(/[\-_](\d{4,6})[\-_]/);
-    if (urlSetMatch) {
-      return urlSetMatch[1];
-    }
-
-    // Check for any 4-6 digit numbers in the URL
+    if (urlSetMatch) return urlSetMatch[1];
     const urlMatches = url.match(/\b\d{4,6}\b/g);
-    if (urlMatches) {
-      return urlMatches[0];
-    }
+    if (urlMatches) return urlMatches[0];
   }
 
   return null;
@@ -96,85 +78,58 @@ const isLegoRelated = (text) => {
  */
 const getConditionScale = (conditionText) => {
   if (!conditionText) return 0;
-
   const condition = conditionText.toLowerCase();
   if (condition.includes('neuf avec étiquette')) return 1;
   if (condition.includes('neuf sans étiquette')) return 2;
   if (condition.includes('très bon état')) return 3;
   if (condition.includes('bon état')) return 4;
   if (condition.includes('satisfaisant')) return 5;
-  return 0; // Default for unknown or other conditions
+  return 0;
 };
 
 /**
  * Parse HTML data from vinted.fr search/list pages
  * @param {String} data - HTML response
- * @param {String|null} searchSetNumber - The set number from the search query (e.g., 40460)
+ * @param {String|null} searchSetNumber - The set number from the search query
  * @return {Array} Array of sale objects
  */
 const parseSearchResults = (data, searchSetNumber = null) => {
   const $ = cheerio.load(data);
-
   return $('.feed-grid__item, .new-item-box__container')
     .map((i, element) => {
       const imageElement = $(element).find('img.web_ui__Image__content');
       const altText = imageElement.attr('alt') || '';
+      if (!isLegoRelated(altText)) return undefined;
 
-      // Skip if not LEGO-related
-      if (!isLegoRelated(altText)) {
-        return undefined;
-      }
-
-      // Extract link
       const linkElement = $(element).find('a.new-item-box__overlay--clickable');
       const link = linkElement.attr('href') || '';
       const fullLink = link.startsWith('http') ? link : `https://www.vinted.fr${link}`;
 
-      // If searchSetNumber is provided, ensure the item matches the set number
       if (searchSetNumber) {
         const combinedText = `${altText} ${fullLink}`.toLowerCase();
-        if (!combinedText.includes(searchSetNumber.toLowerCase())) {
-          return undefined; // Skip items that don't match the set number
-        }
+        if (!combinedText.includes(searchSetNumber.toLowerCase())) return undefined;
       }
 
-      // Extract title from alt text
       let title = '';
       const titleMatch = altText.match(/^([^,]+)/);
-      if (titleMatch) {
-        title = titleMatch[1].trim();
-      }
+      if (titleMatch) title = titleMatch[1].trim();
 
-      // Extract condition and convert to scale
       const conditionMatch = altText.match(/état:\s*([^,]+)/i);
       const conditionText = conditionMatch ? conditionMatch[1].trim() : 'Unknown';
       const condition = getConditionScale(conditionText);
 
-      // Extract price
       const priceElement = $(element).find('[data-testid$="--price-text"]');
       const priceText = priceElement.text().trim();
       const price = cleanPrice(priceText);
 
-      // Extract favorites count
       const favoritesElement = $(element).find('button[data-testid$="--favourite"] .web_ui__Text__caption');
       const favoritesText = favoritesElement.text().trim();
       const favoritesCount = favoritesText ? parseInt(favoritesText) : 0;
 
-      // Use the searchSetNumber if provided; otherwise, fall back to extractLegoSetNumber
       const setNumber = searchSetNumber || extractLegoSetNumber(altText, fullLink);
-
-      // Extract image URL
       const imageUrl = imageElement.attr('src') || '';
 
-      return {
-        setNumber,
-        title,
-        price,
-        link: fullLink,
-        condition,
-        favoritesCount,
-        imageUrl
-      };
+      return { setNumber, title, price, link: fullLink, condition, favoritesCount, imageUrl };
     })
     .get()
     .filter(item => item !== undefined);
@@ -188,14 +143,7 @@ const parseSearchResults = (data, searchSetNumber = null) => {
  */
 const parseProductPage = (data, url) => {
   const $ = cheerio.load(data);
-
-  // Extract title - try different selectors based on page structure
-  const titleSelectors = [
-    'h1[itemprop="name"]',
-    '.web_ui__Text__title',
-    '.item-details h1'
-  ];
-
+  const titleSelectors = ['h1[itemprop="name"]', '.web_ui__Text__title', '.item-details h1'];
   let title = '';
   for (const selector of titleSelectors) {
     const element = $(selector);
@@ -204,18 +152,13 @@ const parseProductPage = (data, url) => {
       break;
     }
   }
+  if (!title) title = $('title').text().trim();
 
-  if (!title) {
-    title = $('title').text().trim();
-  }
-
-  // Extract description for LEGO-related check and set number extraction
   const descriptionSelectors = [
     '[itemprop="description"]',
     '[data-testid="item-description"] .web_ui__Text__body',
     '.item-description'
   ];
-
   let description = '';
   for (const selector of descriptionSelectors) {
     const element = $(selector);
@@ -225,18 +168,13 @@ const parseProductPage = (data, url) => {
     }
   }
 
-  // Skip if not LEGO-related
-  if (!isLegoRelated(title) && !isLegoRelated(description)) {
-    return [];
-  }
+  if (!isLegoRelated(title) && !isLegoRelated(description)) return [];
 
-  // Extract price - try different selectors based on page structure
   const priceSelectors = [
     '.item-price__current-price',
     '[data-testid="item-price"] .web_ui__Text__subtitle',
     '.item-details__price'
   ];
-
   let priceText = '';
   for (const selector of priceSelectors) {
     const element = $(selector);
@@ -247,13 +185,11 @@ const parseProductPage = (data, url) => {
   }
   const price = cleanPrice(priceText);
 
-  // Extract condition and convert to scale
   const conditionSelectors = [
     '.item-attributes__attribute:contains("État") .item-attributes__value',
     '[data-testid="item-attributes-status"] .web_ui__Text__bold',
     '.details-list__item:contains("État") .details-list__value'
   ];
-
   let conditionText = 'Unknown';
   for (const selector of conditionSelectors) {
     const element = $(selector);
@@ -264,16 +200,9 @@ const parseProductPage = (data, url) => {
   }
   const condition = getConditionScale(conditionText);
 
-  // Extract set number from title, description, and URL
   const setNumber = extractLegoSetNumber(title + ' ' + description, url);
 
-  // Extract image URL
-  const imageSelectors = [
-    '.item-photos__photo img',
-    '.item-photos img',
-    '.web_ui__Image__content'
-  ];
-
+  const imageSelectors = ['.item-photos__photo img', '.item-photos img', '.web_ui__Image__content'];
   let imageUrl = '';
   for (const selector of imageSelectors) {
     const element = $(selector);
@@ -283,42 +212,28 @@ const parseProductPage = (data, url) => {
     }
   }
 
-  // Extract favorites count
-  const favoritesSelectors = [
-    '[data-testid="favourite-button"] .web_ui__Text__text', // Directly target the span with the number
-    '.item-favourite-count', // Generic class for favorite count
-    '.item-actions__favourites .web_ui__Text__body' // Alternative structure
-  ];
-
   let favoritesCount = 0;
+  const favoritesSelectors = [
+    '[data-testid="favourite-button"] .web_ui__Text__text',
+    '.item-favourite-count',
+    '.item-actions__favourites .web_ui__Text__body'
+  ];
   for (const selector of favoritesSelectors) {
     const element = $(selector);
     if (element.length) {
       const favoritesText = element.text().trim();
       favoritesCount = favoritesText ? parseInt(favoritesText.replace(/[^\d]/g, '')) || 0 : 0;
-      if (favoritesCount > 0) break; // Exit loop once we find a valid count
+      if (favoritesCount > 0) break;
     }
   }
-
-  // Fallback: Extract from aria-label if the above selectors fail
   if (favoritesCount === 0) {
     const ariaLabelElement = $('[data-testid="favourite-button"]');
     const ariaLabel = ariaLabelElement.attr('aria-label') || '';
     const ariaMatch = ariaLabel.match(/par\s+(\d+)\s+utilisateur/i);
-    if (ariaMatch) {
-      favoritesCount = parseInt(ariaMatch[1]) || 0;
-    }
+    if (ariaMatch) favoritesCount = parseInt(ariaMatch[1]) || 0;
   }
 
-  return [{
-    setNumber,
-    title,
-    price,
-    link: url,
-    condition,
-    favoritesCount,
-    imageUrl
-  }];
+  return [{ setNumber, title, price, link: url, condition, favoritesCount, imageUrl }];
 };
 
 /**
@@ -342,31 +257,24 @@ const saveSalesToFile = async (newSales, filePath, isProductPage) => {
 
     const existingSalesMap = new Map();
     existingSales.forEach(sale => {
-      if (sale.link) {
-        existingSalesMap.set(sale.link, sale);
-      }
+      if (sale.link) existingSalesMap.set(sale.link, sale);
     });
 
-    // Deduplicate newSales based on link
     const newSalesMap = new Map();
     newSales.forEach(newSale => {
-      if (newSale.link) {
-        newSalesMap.set(newSale.link, newSale);
-      }
+      if (newSale.link) newSalesMap.set(newSale.link, newSale);
     });
     const dedupedNewSales = Array.from(newSalesMap.values());
 
     dedupedNewSales.forEach(newSale => {
       const key = newSale.link;
       if (!key) return;
-
       if (existingSalesMap.has(key)) {
         const existingIndex = existingSales.findIndex(s => s.link === newSale.link);
         if (existingIndex !== -1) {
           if (isProductPage) {
             existingSales[existingIndex] = { ...newSale };
           } else {
-            // Update only specific fields from search results
             existingSales[existingIndex] = {
               ...existingSales[existingIndex],
               price: newSale.price,
@@ -391,12 +299,10 @@ const saveSalesToFile = async (newSales, filePath, isProductPage) => {
  * @returns {Array} Array of sale objects
  */
 module.exports.scrape = async (url) => {
-  const maxRetries = 3;
+  const maxRetries = 5;
   let attempt = 0;
 
   const isProductPage = url.includes('/items/');
-
-  // Extract searchSetNumber from the URL if it's a search page
   let searchSetNumber = null;
   if (!isProductPage) {
     const urlParams = new URLSearchParams(url.split('?')[1] || '');
@@ -404,19 +310,53 @@ module.exports.scrape = async (url) => {
   }
 
   while (attempt < maxRetries) {
+    let browser;
     try {
-      const browser = await puppeteer.launch({
+      browser = await puppeteer.launch({
         headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-web-security',
-          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-update',
+          '--disable-default-apps',
+          '--disable-domain-reliability',
+          '--disable-extensions',
+          '--disable-features=AudioServiceOutOfProcess',
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-notifications',
+          '--disable-offer-store-unmasked-wallet-cards',
+          '--disable-popup-blocking',
+          '--disable-print-preview',
+          '--disable-prompt-on-repost',
+          '--disable-renderer-backgrounding',
+          '--disable-speech-api',
+          '--disable-sync',
+          '--disk-cache-size=33554432',
+          '--hide-scrollbars',
+          '--ignore-gpu-blacklist',
+          '--metrics-recording-only',
+          '--mute-audio',
+          '--no-default-browser-check',
+          '--no-pings',
+          '--password-store=basic',
+          '--use-gl=swiftshader',
+          '--use-mock-keychain',
+          '--window-size=1920,1080'
         ],
       });
 
       const page = await browser.newPage();
-
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36');
       await page.setViewport({ width: 1366, height: 768 });
 
@@ -425,7 +365,19 @@ module.exports.scrape = async (url) => {
         window.chrome = { runtime: {} };
       });
 
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+      let navigationSuccess = false;
+      for (let navAttempt = 0; navAttempt < 3; navAttempt++) {
+        try {
+          await page.goto(url, { waitUntil: 'networkidle2', timeout: 120000 });
+          navigationSuccess = true;
+          break;
+        } catch (navError) {
+          console.warn(`Navigation attempt ${navAttempt + 1} failed: ${navError.message}`);
+          await delay(5000);
+        }
+      }
+      if (!navigationSuccess) throw new Error('All navigation attempts failed');
+
       await delay(5000);
 
       try {
@@ -441,47 +393,32 @@ module.exports.scrape = async (url) => {
 
       let body;
       let sales = [];
-
       if (isProductPage) {
-        // Try multiple selectors to detect product page content
         await Promise.race([
           page.waitForSelector('.item-details', { timeout: 30000 }),
           page.waitForSelector('[data-testid="item-price"]', { timeout: 30000 }),
           page.waitForSelector('.item-page-sidebar-content', { timeout: 30000 }),
           page.waitForSelector('.details-list', { timeout: 30000 })
-        ]).catch(e => {
-          console.log('Warning: Product page selectors not found, continuing anyway:', e.message);
-        });
-
-        // Wait additional time to ensure page is fully loaded
+        ]).catch(e => console.log('Warning: Product page selectors not found:', e.message));
         await delay(2000);
-
         body = await page.content();
         sales = parseProductPage(body, url);
       } else {
-        // Try multiple selectors to detect search page content
         await Promise.race([
           page.waitForSelector('.feed-grid__item', { timeout: 60000 }),
           page.waitForSelector('.new-item-box__container', { timeout: 60000 })
-        ]).catch(e => {
-          console.log('Warning: Search page selectors not found, continuing anyway:', e.message);
-        });
-
-        // Scroll to load more items
+        ]).catch(e => console.log('Warning: Search page selectors not found:', e.message));
         let previousHeight;
-        for (let i = 0; i < 5; i++) { // Scroll up to 5 times to load more items
+        for (let i = 0; i < 5; i++) {
           previousHeight = await page.evaluate('document.body.scrollHeight');
           await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-          await delay(2000); // Wait for new content to load
+          await delay(2000);
           const newHeight = await page.evaluate('document.body.scrollHeight');
-          if (newHeight === previousHeight) break; // Stop if no new content is loaded
+          if (newHeight === previousHeight) break;
         }
-
-        // Wait additional time to ensure page is fully loaded
         await delay(2000);
-
         body = await page.content();
-        sales = parseSearchResults(body, searchSetNumber); // Pass searchSetNumber to parseSearchResults
+        sales = parseSearchResults(body, searchSetNumber);
       }
 
       await browser.close();
@@ -496,15 +433,13 @@ module.exports.scrape = async (url) => {
     } catch (e) {
       attempt++;
       console.error(`❌ Attempt ${attempt} failed for ${url}:`, e.message);
-
+      if (browser) await browser.close().catch(() => {});
       if (attempt === maxRetries) {
         console.error(`❌ All ${maxRetries} attempts failed for ${url}`);
         return [];
       }
-
-      await delay(2000 * attempt);
+      await delay(5000 * attempt);
     }
   }
-
   return [];
 };
